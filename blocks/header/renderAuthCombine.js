@@ -208,8 +208,10 @@ const onHeaderLinkClick = (element) => {
 
 const renderAuthCombine = (navSections, toggleMenu) => {
   if (getCookie('auth_dropin_firstname')) return;
+  if (!navSections) return;
 
   const navListEl = navSections.querySelector('.default-content-wrapper > ul');
+  if (!navListEl) return;
 
   const listItems = navListEl.querySelectorAll(
     '.default-content-wrapper > ul > li',
