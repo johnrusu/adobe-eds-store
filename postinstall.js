@@ -75,6 +75,31 @@ function checkSourceMaps() {
 
 checkSourceMaps();
 
+/**
+ * Adobe Commerce B2C / Optimizer sandboxes often omit B2B-only
+ * ReCaptchaFormEnum values (e.g. COMPANY_CREATE). @dropins/tools still
+ * queries every known form type, which fails GraphQL validation and
+ * prevents reCAPTCHA config from loading. Strip unsupported forms after copy.
+ */
+function patchRecaptchaFormEnum() {
+  const recaptchaPath = path.join(dropinsDir, 'tools', 'recaptcha.js');
+  if (!fs.existsSync(recaptchaPath)) {
+    return;
+  }
+
+  const original = fs.readFileSync(recaptchaPath, 'utf8');
+  const patched = original
+    .replace(/,?COMPANY_CREATE:"createCompany"/g, '')
+    .replace(/COMPANY_CREATE:"createCompany",?/g, '');
+
+  if (patched !== original) {
+    fs.writeFileSync(recaptchaPath, patched);
+    console.info('Patched @dropins/tools recaptcha.js: removed COMPANY_CREATE form type');
+  }
+}
+
+patchRecaptchaFormEnum();
+
 checkPackageLockForArtifactory()
   .then((found) => {
     if (!found) {
