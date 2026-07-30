@@ -1,0 +1,83 @@
+{
+  "data": [
+    {
+      "Key": "Global.AddProductToCart",
+      "Value": "Add to cart"
+    },
+    {
+      "Key": "Global.AddingToCart",
+      "Value": "Adding to cart"
+    },
+    {
+      "Key": "Global.UpdateProductInCart",
+      "Value": "Update cart"
+    },
+    {
+      "Key": "Global.UpdatingInCart",
+      "Value": "Updating cart"
+    },
+    {
+      "Key": "Global.SelectProductOptions",
+      "Value": "Select options"
+    },
+    {
+      "Key": "Global.Filters",
+      "Value": "Filters"
+    },
+    {
+      "Key": "Global.Search",
+      "Value": "Search products"
+    },
+    {
+      "Key": "Global.SearchViewAll",
+      "Value": "View all results"
+    },
+    {
+      "Key": "Global.ProductLoadError",
+      "Value": "We could not load this product. Please try again."
+    },
+    {
+      "Key": "Global.CartEditButton",
+      "Value": "Edit"
+    },
+    {
+      "Key": "Global.CartMoveToWishlist",
+      "Value": "Move to wishlist"
+    },
+    {
+      "Key": "Global.CartRemoveFromWishlist",
+      "Value": "Remove from wishlist"
+    },
+    {
+      "Key": "Global.CartUpdatedProductName",
+      "Value": "Product"
+    },
+    {
+      "Key": "Global.CartUpdatedProductMessage",
+      "Value": "{productName} was updated."
+    },
+    {
+      "Key": "Global.MiniCartAddedMessage",
+      "Value": "Product added to your cart."
+    },
+    {
+      "Key": "Global.MiniCartUpdatedMessage",
+      "Value": "Your cart was updated."
+    },
+    {
+      "Key": "Global.quantityLabel",
+      "Value": "Quantity"
+    },
+    {
+      "Key": "Global.Cancel",
+      "Value": "Cancel"
+    },
+    {
+      "Key": "Global.ViewAllDetails",
+      "Value": "View all details"
+    }
+  ],
+  "total": 19,
+  "offset": 0,
+  "limit": 19
+}

@@ -2,7 +2,6 @@ import {
   loadHeader,
   loadFooter,
   decorateIcons,
-  decorateSections,
   decorateBlocks,
   decorateTemplateAndTheme,
   waitForFirstImage,
@@ -11,7 +10,47 @@ import {
   loadCSS,
   buildBlock,
 } from './aem.js';
+import {
+  loadCommerceEager,
+  loadCommerceLazy,
+  initializeCommerce,
+  applyTemplates,
+  decorateLinks,
+  loadErrorPage,
+  decorateSections,
+  IS_UE,
+  IS_DA,
+} from './commerce.js';
 
+/*
+ * Trusted Types default policy.
+ *
+ * This policy is defined but NOT currently enforced: the
+ * `require-trusted-types-for 'script'` CSP directive that activates it has been
+ * removed from the Content-Security-Policy meta in head.html. The policy is kept
+ * here so enforcement can be turned back on without re-authoring it.
+ *
+ * Why the directive was removed: with it enforced, payment SDKs that build a
+ * same-origin iframe and synchronously inject a <script> into it fail to render.
+ * The Credit Card checkout flow hits this because its hosted-fields SDK does
+ * exactly that. Trusted Types policies are scoped per document/realm, so the
+ * child iframe inherits the CSP directive but not this default policy; the SDK's
+ * `script.src` assignment in that realm then throws "This document requires
+ * 'TrustedScriptURL' assignment" and the card fields never mount. Any dependency
+ * that injects scripts into a same-origin iframe realm hits the same wall.
+ *
+ * To re-enable enforcement: add `require-trusted-types-for 'script';` back to the
+ * `Content-Security-Policy` meta in head.html. Before doing so, note that the
+ * policy below is a passthrough (createScriptURL/createScript return their input
+ * unchanged), so enforcing it satisfies the API without adding real containment;
+ * hardening it into an allowlist is the useful next step. Enforcement will also
+ * re-break any same-origin-iframe SDK unless that SDK installs its own policy in
+ * the iframe realm (the correct long-term fix).
+ *
+ * References:
+ * - Directive introduced upstream: https://github.com/adobe/aem-boilerplate/pull/641
+ * - Trusted Types API: https://developer.mozilla.org/en-US/docs/Web/API/Trusted_Types_API
+ */
 if (window.trustedTypes && window.trustedTypes.createPolicy) {
   const innerTT = window.trustedTypes.createPolicy('tt-inner', {
     createHTML: (s) => s, // avoid stack overflow
@@ -98,7 +137,6 @@ function buildAutoBlocks(main) {
     }
     buildWidgetAutoBlocks(main);
   } catch (error) {
-    // eslint-disable-next-line no-console
     console.error('Auto Blocking failed', error);
   }
 }
@@ -146,8 +184,8 @@ function decorateButtons(main) {
  * Decorates the main element.
  * @param {Element} main The main element
  */
-// eslint-disable-next-line import/prefer-default-export
 export function decorateMain(main) {
+  decorateLinks(main);
   decorateIcons(main);
   buildAutoBlocks(main);
   decorateSections(main);
@@ -162,9 +200,18 @@ export function decorateMain(main) {
 async function loadEager(doc) {
   document.documentElement.lang = 'en';
   decorateTemplateAndTheme();
+
   const main = doc.querySelector('main');
   if (main) {
-    decorateMain(main);
+    try {
+      await initializeCommerce();
+      decorateMain(main);
+      applyTemplates(doc);
+      await loadCommerceEager();
+    } catch (e) {
+      console.error('Error initializing commerce configuration:', e);
+      loadErrorPage(418);
+    }
     document.body.classList.add('appear');
     await loadSection(main.querySelector('.section'), waitForFirstImage);
   }
@@ -195,6 +242,8 @@ async function loadLazy(doc) {
 
   loadFooter(doc.querySelector('footer'));
 
+  loadCommerceLazy();
+
   loadCSS(`${window.hlx.codeBasePath}/styles/lazy-styles.css`);
   loadFonts();
 }
@@ -204,7 +253,6 @@ async function loadLazy(doc) {
  * without impacting the user experience.
  */
 function loadDelayed() {
-  // eslint-disable-next-line import/no-cycle
   window.setTimeout(() => import('./delayed.js'), 3000);
   // load anything that can be postponed to the latest here
 }
@@ -215,4 +263,16 @@ async function loadPage() {
   loadDelayed();
 }
 
+// UE Editor support before page load
+if (IS_UE) {
+  // eslint-disable-next-line import/no-unresolved
+  await import(`${window.hlx.codeBasePath}/scripts/ue.js`).then(({ default: ue }) => ue());
+}
+
 loadPage();
+
+(async function loadDa() {
+  if (!IS_DA) return;
+  // eslint-disable-next-line import/no-unresolved
+  import('https://da.live/scripts/dapreview.js').then(({ default: daPreview }) => daPreview(loadPage));
+}());

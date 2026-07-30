@@ -1,20 +1,123 @@
+/* stylelint-disable no-descending-specificity */
+
 footer {
-  background-color: var(--light-color);
-  font-size: var(--body-font-size-xs);
+    background-color: var(--color-neutral-100);
+    font: var(--type-body-2-default-font);
+    letter-spacing: var(--type-body-2-default-letter-spacing);
 }
 
 footer .footer > div {
-  margin: auto;
-  max-width: 1200px;
-  padding: 40px 24px 24px;
+    margin: auto;
+    max-width: 1200px;
+    padding: 40px 24px 24px;
+}
+
+footer .footer.block::before {
+    content: '';
+    display: block;
+    width: 100%;
+    height: 8px;
+    background-color: var(--adobe-brand-color);
+}
+
+footer .footer .default-content-wrapper {
+    width: 100%;
+    max-width: var(--footer-max-width);
+    margin: 0 auto;
+    padding: 0;
+}
+
+footer .footer .default-content-wrapper ul {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--spacing-small) var(--spacing-xbig);
+    margin: 0 auto;
+    padding: var(--spacing-xxbig) 0;
+    list-style: none;
+    text-align: center;
+}
+
+footer .footer .default-content-wrapper li {
+    margin: 0;
+}
+
+footer .footer .default-content-wrapper li a {
+    color: var(--color-neutral-900);
+    font: var(--type-body-2-strong-font);
+    letter-spacing: var(--type-body-2-strong-letter-spacing);
+}
+
+footer .footer .default-content-wrapper li:last-child a {
+    color: var(--adobe-brand-color);
+}
+
+footer .footer .default-content-wrapper p {
+    display: flex;
+    justify-content: center;
+    margin: 0 0 var(--spacing-xxbig);
+    color: var(--color-neutral-800);
+    text-align: center;
 }
 
 footer .footer p {
-  margin: 0;
+    margin: 0;
 }
 
-@media (width >= 900px) {
-  footer .footer > div {
-    padding: 40px 32px 24px;
-  }
+.storeview-switcher-button {
+    background: transparent;
+    padding-left: 0;
+}
+
+.storeview-modal-storeview-title {
+    margin-bottom: var(--spacing-xxbig);
+    padding-inline-start: var(--spacing-xbig);
+}
+
+.modal .close-button {
+    top: 40px !important;
+    right: 40px !important;
+}
+
+.storeview-single-store {
+    list-style-type: none;
+}
+
+.storeview-selection .storeview-multiple-stores {
+    list-style-image: url("../../icons/chevron-right.svg");
+    list-style-position: inside;
+}
+
+.storeview-selection > li {
+    margin-bottom: var(--spacing-small);
+}
+
+.storeview-multiple-stores > ul {
+    position: relative;
+    width: 100%;
+}
+
+.storeview-multiple-stores > ul > li {
+    list-style: none;
+    display: none;
+}
+
+.storeview-multiple-stores[aria-expanded="true"] {
+    list-style-image: url("../../icons/chevron-down.svg");
+}
+
+.storeview-multiple-stores[aria-expanded="true"] > ul {
+    padding-left: 0;
+}
+
+.storeview-multiple-stores[aria-expanded="true"] > ul > li {
+    display: block;
+    list-style-type: none;
+    margin-bottom: var(--spacing-small);
+}
+
+@media (min-width: 900px) {
+    footer .footer > div {
+        padding: 40px 32px 24px;
+    }
 }
