@@ -101,11 +101,16 @@ const persistCartDataInSession = (data) => {
 };
 
 const setupAemAssetsImageParams = () => {
+  const positiveInteger = (value) => {
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? Math.floor(number) : 1;
+  };
+
   if (isAemAssetsEnabled()) {
     // Convert decimal values to integers for AEM Assets compatibility
     initializers.setImageParamKeys({
-      width: (value) => ['width', Math.floor(value)],
-      height: (value) => ['height', Math.floor(value)],
+      width: (value) => ['width', positiveInteger(value)],
+      height: (value) => ['height', positiveInteger(value)],
       quality: 'quality',
       auto: 'auto',
       crop: 'crop',
@@ -114,11 +119,13 @@ const setupAemAssetsImageParams = () => {
     return;
   }
 
-  // Magento catalog media ignores these params; skip non-finite values so we
-  // do not append height=NaN to product image URLs.
+  // Magento catalog media ignores these params; normalize non-finite values so
+  // we do not append height=NaN to product image URLs. Image parameter mappers
+  // must always return a [key, value] tuple; returning undefined crashes the
+  // drop-in Image component before it can render.
   initializers.setImageParamKeys({
-    width: (value) => (Number.isFinite(Number(value)) ? ['width', Math.floor(Number(value))] : undefined),
-    height: (value) => (Number.isFinite(Number(value)) ? ['height', Math.floor(Number(value))] : undefined),
+    width: (value) => ['width', positiveInteger(value)],
+    height: (value) => ['height', positiveInteger(value)],
   });
 };
 

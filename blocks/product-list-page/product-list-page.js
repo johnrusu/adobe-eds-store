@@ -45,6 +45,12 @@ function renderProductImagePlaceholder(ctx, product, wrapper) {
   ctx.replaceWith(wrapper);
 }
 
+function getValidImageParams(imageProps = {}) {
+  return Object.fromEntries(['width', 'height']
+    .map((key) => [key, Number(imageProps[key])])
+    .filter(([, value]) => Number.isFinite(value) && value > 0));
+}
+
 export default async function decorate(block) {
   const labels = await fetchPlaceholders();
 
@@ -197,10 +203,7 @@ export default async function decorate(block) {
             alias: product.sku,
             imageProps: defaultImageProps,
             wrapper: imageLink,
-            params: {
-              width: defaultImageProps.width,
-              height: defaultImageProps.height,
-            },
+            params: getValidImageParams(defaultImageProps),
           });
         },
         ProductActions: (ctx) => {

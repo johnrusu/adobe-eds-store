@@ -299,7 +299,11 @@ async function loadLazy(doc) {
  * without impacting the user experience.
  */
 function loadDelayed() {
-  window.setTimeout(() => import('./delayed.js'), 3000);
+  window.setTimeout(() => {
+    import('./delayed.js').catch((error) => {
+      console.warn('Delayed functionality could not be loaded.', error);
+    });
+  }, 3000);
   // load anything that can be postponed to the latest here
 }
 
