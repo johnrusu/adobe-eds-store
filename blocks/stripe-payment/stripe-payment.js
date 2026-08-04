@@ -198,6 +198,9 @@ async function createPaymentIntent(endpoint, request) {
     headers.Authorization = `Bearer ${customerToken}`;
   }
 
+  const selectedStore = window.localStorage.getItem('store-view') || 'default';
+  headers.Store = selectedStore;
+
   const response = await fetchStripeResource(endpoint, {
     method: 'POST',
     headers,
