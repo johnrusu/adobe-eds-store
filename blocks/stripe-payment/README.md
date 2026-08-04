@@ -150,9 +150,8 @@ The block reads the App Builder action URLs from the `oope_payment_method_config
 value returned by Commerce GraphQL. Do not hard-code or override these URLs in the storefront; configure the Stripe
 app in Commerce/App Management so the storefront receives trusted runtime URLs from Commerce.
 
-The block also forwards the authenticated customer token from the storefront auth drop-in and the active `store-view`
-value to the App Builder `payment-intent` action. This keeps authenticated carts and multi-store currency resolution
-aligned with the Commerce backend.
+The block also forwards the authenticated customer token from the storefront auth drop-in to the App Builder
+`payment-intent` action.
 
 ## Styling
 

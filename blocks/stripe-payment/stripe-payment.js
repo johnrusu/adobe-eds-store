@@ -198,11 +198,6 @@ async function createPaymentIntent(endpoint, request) {
     headers.Authorization = `Bearer ${customerToken}`;
   }
 
-  // Pass the active store view so the OOPE backend queries Commerce with the
-  // correct store context and creates the PaymentIntent in the right currency.
-  const selectedStore = window.localStorage.getItem('store-view') || 'default';
-  headers.Store = selectedStore;
-
   const response = await fetchStripeResource(endpoint, {
     method: 'POST',
     headers,
@@ -357,14 +352,11 @@ async function startPayment(cartDataParam, checkoutDataParam) {
   assertRequiredCheckoutFieldsComplete(checkoutDataParam);
 
   const cartFullName = `${checkoutDataParam?.billingAddress?.firstName || ''} ${checkoutDataParam?.billingAddress?.lastName || ''}`.trim();
-  const selectedStore = window.localStorage.getItem('store-view') || 'default';
-
   const beginCreatePaymentIntent = await createPaymentIntent(
     runtimeCreatePaymentIntentUrl,
     {
       cartId,
       cartFullName,
-      storeCode: selectedStore,
     },
   );
 
