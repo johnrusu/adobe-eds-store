@@ -108,7 +108,15 @@ const setupAemAssetsImageParams = () => {
       crop: 'crop',
       fit: 'fit',
     });
+    return;
   }
+
+  // Magento catalog media ignores these params; skip non-finite values so we
+  // do not append height=NaN to product image URLs.
+  initializers.setImageParamKeys({
+    width: (value) => (Number.isFinite(Number(value)) ? ['width', Math.floor(Number(value))] : undefined),
+    height: (value) => (Number.isFinite(Number(value)) ? ['height', Math.floor(Number(value))] : undefined),
+  });
 };
 
 export default async function initializeDropins() {

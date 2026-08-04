@@ -181,19 +181,19 @@ export default async function decorate(block) {
       slots: {
         ProductImage: (ctx) => {
           const { product, defaultImageProps } = ctx;
-          const anchorWrapper = document.createElement('a');
-          anchorWrapper.href = getProductLink(product.urlKey, product.sku);
-          anchorWrapper.setAttribute('aria-label', product.name || product.sku);
+          const imageLink = document.createElement('a');
+          imageLink.href = getProductLink(product.urlKey, product.sku);
+          imageLink.setAttribute('aria-label', product.name || product.sku);
 
           if (!defaultImageProps?.src?.trim()) {
-            renderProductImagePlaceholder(ctx, product, anchorWrapper);
+            renderProductImagePlaceholder(ctx, product, imageLink);
             return;
           }
 
           tryRenderAemAssetsImage(ctx, {
             alias: product.sku,
             imageProps: defaultImageProps,
-            wrapper: anchorWrapper,
+            wrapper: imageLink,
             params: {
               width: defaultImageProps.width,
               height: defaultImageProps.height,
@@ -203,18 +203,18 @@ export default async function decorate(block) {
         ProductActions: (ctx) => {
           const actionsWrapper = document.createElement('div');
           actionsWrapper.className = 'product-discovery-product-actions';
-          // Add to Cart Button
+
           const addToCartBtn = getAddToCartButton(ctx.product);
           addToCartBtn.className = 'product-discovery-product-actions__add-to-cart';
-          // Wishlist Button
-          const $wishlistToggle = document.createElement('div');
-          $wishlistToggle.classList.add('product-discovery-product-actions__wishlist-toggle');
+
+          const wishlistToggle = document.createElement('div');
+          wishlistToggle.className = 'product-discovery-product-actions__wishlist-toggle';
           wishlistRender.render(WishlistToggle, {
             product: ctx.product,
             variant: 'tertiary',
-          })($wishlistToggle);
-          actionsWrapper.appendChild(addToCartBtn);
-          actionsWrapper.appendChild($wishlistToggle);
+          })(wishlistToggle);
+
+          actionsWrapper.append(addToCartBtn, wishlistToggle);
           ctx.replaceWith(actionsWrapper);
         },
       },

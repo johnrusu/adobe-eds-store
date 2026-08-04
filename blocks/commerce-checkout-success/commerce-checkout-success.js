@@ -245,8 +245,10 @@ async function renderCheckoutSuccessContent(container, { orderData } = {}) {
 
   container.replaceChildren(orderConfirmationFragment);
 
-  // Mount order drop-in with localized placeholders (and optional order data)
-  const labels = await fetchPlaceholders();
+  // Mount order drop-in with localized placeholders (and optional order data).
+  // Order product list reuses CartItem labels, so load both dictionaries.
+  await fetchPlaceholders('placeholders/cart.json');
+  const labels = await fetchPlaceholders('placeholders/order.json');
   const langDefinitions = { default: { ...labels } };
   const initOptions = orderData ? { langDefinitions, orderData } : { langDefinitions };
   await initializers.mountImmediately(orderApi.initialize, initOptions);

@@ -6,10 +6,17 @@ This storefront is based on Adobe's `hlxsites/aem-boilerplate-commerce`
 foundation. Commerce functionality is provided by browser-side Drop-ins and is
 configured through `/config.json` or the EDS Configuration Service.
 
-The active `config.json` targets the Adobe Commerce as a Cloud Service sandbox
-environment `XjRnU4rfv1hG6ihVjmXJdi`. It uses the environment's public GraphQL
-endpoint and storefront headers; the Commerce Admin URL is not called by
-shopper-side code.
+The active `config.json` targets the PaaS Magento GraphQL endpoint at
+`adobe-enterprise2.developmentcloud.net`. Because that environment does not
+expose Live Search / Catalog Service `productSearch`, the storefront enables
+`commerce-catalog-bridge` to map PLP/search requests to Magento core `products`
+GraphQL. When Catalog Service is available, point `commerce-endpoint` at the
+SaaS catalog URL and set `commerce-catalog-bridge` to `false`.
+
+On localhost, `npm start` also runs `scripts/dev-graphql-proxy.mjs` on
+`127.0.0.1:3001`. It proxies Magento GraphQL (`/graphql`) to avoid CORS and
+Magento media (`/media/*`) so product images do not time out in the browser.
+Media responses are cached under `.media-cache/`.
 
 ## Stripe checkout flow
 

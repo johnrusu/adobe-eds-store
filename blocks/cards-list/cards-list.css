@@ -1,62 +1,63 @@
 .cards-list {
-  display: flex;
-  flex-flow: column wrap;
-  gap: var(--spacing-medium);
+    display: flex;
+    flex-flow: column wrap;
+    gap: var(--spacing-medium);
 }
 
 .cards-list p {
-  margin: 0;
+    margin: 0;
 }
 
 .cards-list > div {
-  flex-direction: column;
-  border-radius: var(--shape-border-radius-2);
-  background-color: var(--color-neutral-50);
+    flex-direction: column;
+    border-radius: var(--shape-border-radius-2);
+    background-color: var(--color-neutral-50);
 }
 
 .cards-list .card-item {
-  position: relative;
-  padding: 0 0 var(--spacing-xbig);
+    position: relative;
+    padding: 0 0 var(--spacing-xbig);
 }
 
 .cards-list > div h3,
 .cards-list > div h4 {
-  display: block;
-  width: 100%;
-  margin: var(--spacing-small) 0 0;
-  padding: 0;
-  color: var(--color-neutral-900);
-  font-weight: 700;
-  line-height: 1.1;
+    display: block;
+    width: 100%;
+    margin: var(--spacing-small) 0 0;
+    padding: 0;
+    color: var(--color-neutral-900);
+    font-weight: 700;
+    line-height: 1.1;
 }
 
 .cards-list .desc {
-  margin-top: var(--spacing-xsmall);
-  color: var(--color-neutral-900);
-  font: var(--type-body-1-strong-font);
-  letter-spacing: var(--type-body-1-strong-letter-spacing);
+    margin-top: var(--spacing-xsmall);
+    margin-bottom: var(--spacing-medium);
+    color: var(--color-neutral-900);
+    font: var(--type-body-1-strong-font);
+    letter-spacing: var(--type-body-1-strong-letter-spacing);
 }
 
 .cards-list > div img {
-  display: block;
-  width: 100%;
-  height: clamp(300px, 34vw, 650px);
-  object-fit: cover;
-  object-position: top;
+    display: block;
+    width: 100%;
+    height: clamp(300px, 34vw, 650px);
+    object-fit: cover;
+    object-position: top;
 }
 
 .cards-list .button-container {
-  margin-top: var(--spacing-medium);
+    margin-top: var(--spacing-medium);
 }
 
 @media (min-width: 900px) {
-  .cards-list {
-    flex-direction: row;
-    gap: var(--spacing-xbig);
-  }
+    .cards-list {
+        flex-direction: row;
+        gap: var(--spacing-xbig);
+    }
 
-  .cards-list .card-item {
-    flex: 1 1 calc(50% - var(--spacing-medium));
-    padding-bottom: var(--spacing-xxbig);
-  }
+    .cards-list .card-item {
+        flex: 1 1 calc(50% - var(--spacing-medium));
+        padding-bottom: var(--spacing-xxbig);
+    }
 }

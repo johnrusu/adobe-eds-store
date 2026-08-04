@@ -33,6 +33,12 @@ function renderProductPlaceholder(ctx, item, anchorWrapper) {
   ctx.append(anchorWrapper);
 }
 
+function getValidImageParams(imageProps = {}) {
+  return Object.fromEntries(['width', 'height']
+    .map((key) => [key, Number(imageProps[key])])
+    .filter(([, value]) => Number.isFinite(value) && value > 0));
+}
+
 export default async function decorate(block) {
   const {
     'start-shopping-url': startShoppingURL = '',
@@ -194,11 +200,7 @@ export default async function decorate(block) {
               alias: item.sku,
               imageProps: defaultImageProps,
               wrapper: anchorWrapper,
-
-              params: {
-                width: defaultImageProps.width,
-                height: defaultImageProps.height,
-              },
+              params: getValidImageParams(defaultImageProps),
             });
           } catch (error) {
             console.warn('Unable to render mini-cart product image.', error);

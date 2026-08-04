@@ -46,6 +46,11 @@ function extractMainImageUrl() {
   }
 }
 
+function isUsablePreloadImage(imageUrl) {
+  if (!imageUrl) return false;
+  return !new URL(imageUrl, window.location.href).pathname.endsWith('/default-meta-image.png');
+}
+
 /**
  * Preloads PDP Dropins assets for optimal performance
  */
@@ -65,9 +70,9 @@ function preloadPDPAssets() {
   // Extract and preload main product image
   const imageUrl = extractMainImageUrl();
 
-  if (imageUrl) {
+  if (isUsablePreloadImage(imageUrl)) {
     preloadFile(imageUrl, 'image');
-  } else {
+  } else if (!imageUrl) {
     console.warn('Unable to infer main image from JSON-LD or meta tags');
   }
 }
@@ -113,6 +118,8 @@ await initializeDropin(async () => {
     models,
     acdl: true,
     persistURLParams: true,
+    // Required for Magento configurables so Add to cart can become valid.
+    preselectFirstOption: true,
   });
 })();
 

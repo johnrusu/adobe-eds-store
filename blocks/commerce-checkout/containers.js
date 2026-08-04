@@ -488,13 +488,13 @@ export const renderCartSummaryList = async (container) => renderContainer(
   CONTAINERS.CART_SUMMARY_LIST,
   async () => {
     const placeholders = await fetchPlaceholders('placeholders/checkout.json');
+    const summaryHeading = placeholders?.Checkout?.Summary?.heading || 'Your cart ({count})';
+    const summaryEdit = placeholders?.Checkout?.Summary?.Edit || 'Edit';
 
     return CartProvider.render(CartSummaryList, {
       variant: 'secondary',
       slots: {
         Heading: (headingCtx) => {
-          const title = placeholders?.Checkout?.Summary?.heading;
-
           const cartSummaryListHeading = document.createElement('div');
           cartSummaryListHeading.classList.add('cart-summary-list__heading');
 
@@ -503,7 +503,7 @@ export const renderCartSummaryList = async (container) => renderContainer(
             'cart-summary-list__heading-text',
           );
 
-          cartSummaryListHeadingText.innerText = title?.replace(
+          cartSummaryListHeadingText.innerText = summaryHeading.replace(
             '({count})',
             headingCtx.count ? `(${headingCtx.count})` : '',
           );
@@ -511,15 +511,15 @@ export const renderCartSummaryList = async (container) => renderContainer(
           editCartLink.classList.add('cart-summary-list__edit');
           editCartLink.href = rootLink('/cart');
           editCartLink.rel = 'noreferrer';
-          editCartLink.innerText = placeholders?.Checkout?.Summary?.Edit;
-          editCartLink.setAttribute('aria-label', `${placeholders?.Checkout?.Summary?.Edit} cart`);
+          editCartLink.innerText = summaryEdit;
+          editCartLink.setAttribute('aria-label', `${summaryEdit} cart`);
 
           cartSummaryListHeading.appendChild(cartSummaryListHeadingText);
           cartSummaryListHeading.appendChild(editCartLink);
           headingCtx.appendChild(cartSummaryListHeading);
 
           headingCtx.onChange((nextHeadingCtx) => {
-            cartSummaryListHeadingText.innerText = title?.replace(
+            cartSummaryListHeadingText.innerText = summaryHeading.replace(
               '({count})',
               nextHeadingCtx.count ? `(${nextHeadingCtx.count})` : '',
             );

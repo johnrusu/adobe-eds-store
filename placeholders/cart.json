@@ -3,9 +3,689 @@
     {
       "Key": "Storefront.Resource.Cart",
       "Value": "loaded"
+    },
+    {
+      "Key": "Cart.Cart.heading",
+      "Value": "Shopping Cart ({count})"
+    },
+    {
+      "Key": "Cart.Cart.editCart",
+      "Value": "Edit"
+    },
+    {
+      "Key": "Cart.Cart.viewAll",
+      "Value": "View all in cart"
+    },
+    {
+      "Key": "Cart.Cart.viewMore",
+      "Value": "View more"
+    },
+    {
+      "Key": "Cart.CartSummaryTable.item",
+      "Value": "Item"
+    },
+    {
+      "Key": "Cart.CartSummaryTable.price",
+      "Value": "Price"
+    },
+    {
+      "Key": "Cart.CartSummaryTable.qty",
+      "Value": "Qty"
+    },
+    {
+      "Key": "Cart.CartSummaryTable.subtotal",
+      "Value": "Subtotal"
+    },
+    {
+      "Key": "Cart.CartSummaryTable.mobilePrice",
+      "Value": "Price"
+    },
+    {
+      "Key": "Cart.CartSummaryTable.mobileQty",
+      "Value": "Qty"
+    },
+    {
+      "Key": "Cart.CartSummaryTable.mobileSubtotal",
+      "Value": "Subtotal"
+    },
+    {
+      "Key": "Cart.MiniCart.heading",
+      "Value": "Shopping Cart ({count})"
+    },
+    {
+      "Key": "Cart.MiniCart.subtotal",
+      "Value": "Subtotal"
+    },
+    {
+      "Key": "Cart.MiniCart.subtotalExcludingTaxes",
+      "Value": "Subtotal excluding taxes"
+    },
+    {
+      "Key": "Cart.MiniCart.cartLink",
+      "Value": "View Cart"
+    },
+    {
+      "Key": "Cart.MiniCart.checkoutLink",
+      "Value": "Checkout"
+    },
+    {
+      "Key": "Cart.EmptyCart.heading",
+      "Value": "Your cart is empty"
+    },
+    {
+      "Key": "Cart.EmptyCart.cta",
+      "Value": "Start shopping"
+    },
+    {
+      "Key": "Cart.PriceSummary.taxToBeDetermined",
+      "Value": "TBD"
+    },
+    {
+      "Key": "Cart.PriceSummary.checkout",
+      "Value": "Checkout"
+    },
+    {
+      "Key": "Cart.PriceSummary.orderSummary",
+      "Value": "Order Summary"
+    },
+    {
+      "Key": "Cart.PriceSummary.giftCard.label",
+      "Value": "Gift Card"
+    },
+    {
+      "Key": "Cart.PriceSummary.giftCard.applyAction",
+      "Value": "Apply"
+    },
+    {
+      "Key": "Cart.PriceSummary.giftCard.applyActionAriaLabel",
+      "Value": "Apply gift card"
+    },
+    {
+      "Key": "Cart.PriceSummary.giftCard.ariaLabel",
+      "Value": "Enter gift card code"
+    },
+    {
+      "Key": "Cart.PriceSummary.giftCard.ariaLabelRemove",
+      "Value": "Remove gift card"
+    },
+    {
+      "Key": "Cart.PriceSummary.giftCard.placeholder",
+      "Value": "Enter code"
+    },
+    {
+      "Key": "Cart.PriceSummary.giftCard.title",
+      "Value": "Gift Card"
+    },
+    {
+      "Key": "Cart.PriceSummary.giftCard.errors.empty",
+      "Value": "Please enter a gift card code."
+    },
+    {
+      "Key": "Cart.PriceSummary.giftCard.appliedGiftCards.label.singular",
+      "Value": "Gift card"
+    },
+    {
+      "Key": "Cart.PriceSummary.giftCard.appliedGiftCards.label.plural",
+      "Value": "Gift cards"
+    },
+    {
+      "Key": "Cart.PriceSummary.giftCard.appliedGiftCards.remainingBalance",
+      "Value": "Remaining balance"
+    },
+    {
+      "Key": "Cart.PriceSummary.giftOptionsTax.printedCard.title",
+      "Value": "Printed card"
+    },
+    {
+      "Key": "Cart.PriceSummary.giftOptionsTax.printedCard.inclTax",
+      "Value": "Including taxes"
+    },
+    {
+      "Key": "Cart.PriceSummary.giftOptionsTax.printedCard.exclTax",
+      "Value": "excluding taxes"
+    },
+    {
+      "Key": "Cart.PriceSummary.giftOptionsTax.itemGiftWrapping.title",
+      "Value": "Item gift wrapping"
+    },
+    {
+      "Key": "Cart.PriceSummary.giftOptionsTax.itemGiftWrapping.inclTax",
+      "Value": "Including taxes"
+    },
+    {
+      "Key": "Cart.PriceSummary.giftOptionsTax.itemGiftWrapping.exclTax",
+      "Value": "excluding taxes"
+    },
+    {
+      "Key": "Cart.PriceSummary.giftOptionsTax.orderGiftWrapping.title",
+      "Value": "Order gift wrapping"
+    },
+    {
+      "Key": "Cart.PriceSummary.giftOptionsTax.orderGiftWrapping.inclTax",
+      "Value": "Including taxes"
+    },
+    {
+      "Key": "Cart.PriceSummary.giftOptionsTax.orderGiftWrapping.exclTax",
+      "Value": "excluding taxes"
+    },
+    {
+      "Key": "Cart.PriceSummary.subTotal.label",
+      "Value": "Subtotal"
+    },
+    {
+      "Key": "Cart.PriceSummary.subTotal.withTaxes",
+      "Value": "Including taxes"
+    },
+    {
+      "Key": "Cart.PriceSummary.subTotal.withoutTaxes",
+      "Value": "excluding taxes"
+    },
+    {
+      "Key": "Cart.PriceSummary.shipping.label",
+      "Value": "Shipping"
+    },
+    {
+      "Key": "Cart.PriceSummary.shipping.editZipAction",
+      "Value": "Apply"
+    },
+    {
+      "Key": "Cart.PriceSummary.shipping.estimated",
+      "Value": "Estimated Shipping"
+    },
+    {
+      "Key": "Cart.PriceSummary.shipping.estimatedDestination",
+      "Value": "Estimated Shipping to"
+    },
+    {
+      "Key": "Cart.PriceSummary.shipping.destinationLinkAriaLabel",
+      "Value": "Change destination"
+    },
+    {
+      "Key": "Cart.PriceSummary.shipping.zipPlaceholder",
+      "Value": "Zip Code"
+    },
+    {
+      "Key": "Cart.PriceSummary.shipping.withTaxes",
+      "Value": "Including taxes"
+    },
+    {
+      "Key": "Cart.PriceSummary.shipping.withoutTaxes",
+      "Value": "excluding taxes"
+    },
+    {
+      "Key": "Cart.PriceSummary.shipping.alternateField.zip",
+      "Value": "Estimate using country/zip"
+    },
+    {
+      "Key": "Cart.PriceSummary.shipping.alternateField.state",
+      "Value": "Estimate using country/state"
+    },
+    {
+      "Key": "Cart.PriceSummary.taxes.total",
+      "Value": "Tax Total"
+    },
+    {
+      "Key": "Cart.PriceSummary.taxes.totalOnly",
+      "Value": "Tax"
+    },
+    {
+      "Key": "Cart.PriceSummary.taxes.breakdown",
+      "Value": "Taxes"
+    },
+    {
+      "Key": "Cart.PriceSummary.taxes.showBreakdown",
+      "Value": "Show Tax Breakdown"
+    },
+    {
+      "Key": "Cart.PriceSummary.taxes.hideBreakdown",
+      "Value": "Hide Tax Breakdown"
+    },
+    {
+      "Key": "Cart.PriceSummary.taxes.estimated",
+      "Value": "Estimated Tax"
+    },
+    {
+      "Key": "Cart.PriceSummary.total.estimated",
+      "Value": "Estimated Total"
+    },
+    {
+      "Key": "Cart.PriceSummary.total.free",
+      "Value": "Free"
+    },
+    {
+      "Key": "Cart.PriceSummary.total.label",
+      "Value": "Total"
+    },
+    {
+      "Key": "Cart.PriceSummary.total.withoutTax",
+      "Value": "Total excluding taxes"
+    },
+    {
+      "Key": "Cart.PriceSummary.total.saved",
+      "Value": "Total saved"
+    },
+    {
+      "Key": "Cart.PriceSummary.estimatedShippingForm.country.placeholder",
+      "Value": "Country"
+    },
+    {
+      "Key": "Cart.PriceSummary.estimatedShippingForm.state.placeholder",
+      "Value": "State"
+    },
+    {
+      "Key": "Cart.PriceSummary.estimatedShippingForm.zip.placeholder",
+      "Value": "Zip Code"
+    },
+    {
+      "Key": "Cart.PriceSummary.estimatedShippingForm.apply.label",
+      "Value": "Apply"
+    },
+    {
+      "Key": "Cart.PriceSummary.estimatedShippingForm.apply.ariaLabel",
+      "Value": "Apply destination"
+    },
+    {
+      "Key": "Cart.PriceSummary.freeShipping",
+      "Value": "Free"
+    },
+    {
+      "Key": "Cart.PriceSummary.coupon.applyAction",
+      "Value": "Apply"
+    },
+    {
+      "Key": "Cart.PriceSummary.coupon.applyActionAriaLabel",
+      "Value": "Apply discount code"
+    },
+    {
+      "Key": "Cart.PriceSummary.coupon.placeholder",
+      "Value": "Enter code"
+    },
+    {
+      "Key": "Cart.PriceSummary.coupon.title",
+      "Value": "Discount code"
+    },
+    {
+      "Key": "Cart.PriceSummary.coupon.ariaLabelRemove",
+      "Value": "Remove coupon"
+    },
+    {
+      "Key": "Cart.CartItem.discountedPrice",
+      "Value": "Discounted Price"
+    },
+    {
+      "Key": "Cart.CartItem.download",
+      "Value": "file"
+    },
+    {
+      "Key": "Cart.CartItem.message",
+      "Value": "Note"
+    },
+    {
+      "Key": "Cart.CartItem.recipient",
+      "Value": "To"
+    },
+    {
+      "Key": "Cart.CartItem.regularPrice",
+      "Value": "Regular Price"
+    },
+    {
+      "Key": "Cart.CartItem.sender",
+      "Value": "From"
+    },
+    {
+      "Key": "Cart.CartItem.file",
+      "Value": "{count} file"
+    },
+    {
+      "Key": "Cart.CartItem.files",
+      "Value": "{count} files"
+    },
+    {
+      "Key": "Cart.CartItem.lowInventory",
+      "Value": "Only {count} left!"
+    },
+    {
+      "Key": "Cart.CartItem.insufficientQuantity",
+      "Value": "Only {inventory} of {count} in stock"
+    },
+    {
+      "Key": "Cart.CartItem.insufficientQuantityGeneral",
+      "Value": "Not enough items for sale"
+    },
+    {
+      "Key": "Cart.CartItem.notAvailableMessage",
+      "Value": "Requested qty. not available"
+    },
+    {
+      "Key": "Cart.CartItem.discountPercentage",
+      "Value": "{discount}% off"
+    },
+    {
+      "Key": "Cart.CartItem.savingsAmount",
+      "Value": "Savings"
+    },
+    {
+      "Key": "Cart.CartItem.includingTax",
+      "Value": "Incl. tax"
+    },
+    {
+      "Key": "Cart.CartItem.excludingTax",
+      "Value": "Excl. tax"
+    },
+    {
+      "Key": "Cart.CartItem.itemBeingRemoved",
+      "Value": "\"{product}\" is being removed"
+    },
+    {
+      "Key": "Cart.CartItem.itemRemoved",
+      "Value": "\"{product}\" was removed"
+    },
+    {
+      "Key": "Cart.CartItem.itemRemovedDescription",
+      "Value": "Changed your mind? You can undo this action."
+    },
+    {
+      "Key": "Cart.CartItem.undoAction",
+      "Value": "Undo"
+    },
+    {
+      "Key": "Cart.CartItem.dismissAction",
+      "Value": "Dismiss"
+    },
+    {
+      "Key": "Cart.CartItem.confirmDeleteHeading",
+      "Value": "Remove \"{product}\" from your cart?"
+    },
+    {
+      "Key": "Cart.CartItem.confirmAction",
+      "Value": "Remove"
+    },
+    {
+      "Key": "Cart.CartItem.cancelAction",
+      "Value": "Cancel"
+    },
+    {
+      "Key": "Cart.EstimateShipping.label",
+      "Value": "Shipping"
+    },
+    {
+      "Key": "Cart.EstimateShipping.editZipAction",
+      "Value": "Apply"
+    },
+    {
+      "Key": "Cart.EstimateShipping.estimated",
+      "Value": "Estimated Shipping"
+    },
+    {
+      "Key": "Cart.EstimateShipping.estimatedDestination",
+      "Value": "Estimated Shipping to"
+    },
+    {
+      "Key": "Cart.EstimateShipping.destinationLinkAriaLabel",
+      "Value": "{destination}, Change destination"
+    },
+    {
+      "Key": "Cart.EstimateShipping.zipPlaceholder",
+      "Value": "Zip Code"
+    },
+    {
+      "Key": "Cart.EstimateShipping.withTaxes",
+      "Value": "Including taxes"
+    },
+    {
+      "Key": "Cart.EstimateShipping.withoutTaxes",
+      "Value": "excluding taxes"
+    },
+    {
+      "Key": "Cart.EstimateShipping.alternateField.zip",
+      "Value": "Estimate using country/zip"
+    },
+    {
+      "Key": "Cart.EstimateShipping.alternateField.state",
+      "Value": "Estimate using country/state"
+    },
+    {
+      "Key": "Cart.OutOfStockMessage.heading",
+      "Value": "Your cart contains items with limited stock"
+    },
+    {
+      "Key": "Cart.OutOfStockMessage.message",
+      "Value": "Please adjust quantities to continue"
+    },
+    {
+      "Key": "Cart.OutOfStockMessage.alert",
+      "Value": "Out of stock"
+    },
+    {
+      "Key": "Cart.OutOfStockMessage.action",
+      "Value": "Remove all out of stock items from cart"
+    },
+    {
+      "Key": "Cart.GiftOptions.accordionAriaLabel",
+      "Value": "{title} for {product}"
+    },
+    {
+      "Key": "Cart.GiftOptions.giftOptionsApplied",
+      "Value": "Applied"
+    },
+    {
+      "Key": "Cart.GiftOptions.formText.requiredFieldError",
+      "Value": "This field is required"
+    },
+    {
+      "Key": "Cart.GiftOptions.modal.defaultTitle",
+      "Value": "Gift wrapping for Cart"
+    },
+    {
+      "Key": "Cart.GiftOptions.modal.title",
+      "Value": "Gift wrapping for"
+    },
+    {
+      "Key": "Cart.GiftOptions.modal.wrappingText",
+      "Value": "Wrapping choice"
+    },
+    {
+      "Key": "Cart.GiftOptions.modal.wrappingSubText",
+      "Value": ""
+    },
+    {
+      "Key": "Cart.GiftOptions.modal.modalConfirmButton",
+      "Value": "Apply"
+    },
+    {
+      "Key": "Cart.GiftOptions.modal.modalCancelButton",
+      "Value": "Cancel"
+    },
+    {
+      "Key": "Cart.GiftOptions.modal.ariaLabelWrapping",
+      "Value": "Wrapping options"
+    },
+    {
+      "Key": "Cart.GiftOptions.order.customize",
+      "Value": "Customize"
+    },
+    {
+      "Key": "Cart.GiftOptions.order.accordionHeading",
+      "Value": "Gift options"
+    },
+    {
+      "Key": "Cart.GiftOptions.order.giftReceiptIncluded.title",
+      "Value": "Use gift receipt"
+    },
+    {
+      "Key": "Cart.GiftOptions.order.giftReceiptIncluded.subtitle",
+      "Value": "The receipt and order invoice will not show the price."
+    },
+    {
+      "Key": "Cart.GiftOptions.order.printedCardIncluded.title",
+      "Value": "Include printed card"
+    },
+    {
+      "Key": "Cart.GiftOptions.order.printedCardIncluded.subtitle",
+      "Value": ""
+    },
+    {
+      "Key": "Cart.GiftOptions.order.giftOptionsWrap.title",
+      "Value": "Gift wrap this order"
+    },
+    {
+      "Key": "Cart.GiftOptions.order.giftOptionsWrap.subtitle",
+      "Value": "Wrapping option:"
+    },
+    {
+      "Key": "Cart.GiftOptions.order.formContent.formTitle",
+      "Value": "Add a message to the order (optional)"
+    },
+    {
+      "Key": "Cart.GiftOptions.order.formContent.formTo",
+      "Value": "To"
+    },
+    {
+      "Key": "Cart.GiftOptions.order.formContent.formFrom",
+      "Value": "From"
+    },
+    {
+      "Key": "Cart.GiftOptions.order.formContent.giftMessageTitle",
+      "Value": "Gift message"
+    },
+    {
+      "Key": "Cart.GiftOptions.order.formContent.formToPlaceholder",
+      "Value": "Recipient's name"
+    },
+    {
+      "Key": "Cart.GiftOptions.order.formContent.formFromPlaceholder",
+      "Value": "Sender's name"
+    },
+    {
+      "Key": "Cart.GiftOptions.order.formContent.formMessagePlaceholder",
+      "Value": "Gift message"
+    },
+    {
+      "Key": "Cart.GiftOptions.order.readOnlyFormView.title",
+      "Value": "Selected gift order options"
+    },
+    {
+      "Key": "Cart.GiftOptions.order.readOnlyFormView.giftWrap",
+      "Value": "Gift wrap this order"
+    },
+    {
+      "Key": "Cart.GiftOptions.order.readOnlyFormView.giftWrapOptions",
+      "Value": "Wrapping option:"
+    },
+    {
+      "Key": "Cart.GiftOptions.order.readOnlyFormView.giftReceipt",
+      "Value": "Use gift receipt"
+    },
+    {
+      "Key": "Cart.GiftOptions.order.readOnlyFormView.giftReceiptText",
+      "Value": "The receipt and order invoice will not show the price."
+    },
+    {
+      "Key": "Cart.GiftOptions.order.readOnlyFormView.printCard",
+      "Value": "Use printed card"
+    },
+    {
+      "Key": "Cart.GiftOptions.order.readOnlyFormView.printCardText",
+      "Value": ""
+    },
+    {
+      "Key": "Cart.GiftOptions.order.readOnlyFormView.formTitle",
+      "Value": "Your gift message"
+    },
+    {
+      "Key": "Cart.GiftOptions.order.readOnlyFormView.formTo",
+      "Value": "To"
+    },
+    {
+      "Key": "Cart.GiftOptions.order.readOnlyFormView.formFrom",
+      "Value": "From"
+    },
+    {
+      "Key": "Cart.GiftOptions.order.readOnlyFormView.formMessageTitle",
+      "Value": "Gift message"
+    },
+    {
+      "Key": "Cart.GiftOptions.product.customize",
+      "Value": "Customize"
+    },
+    {
+      "Key": "Cart.GiftOptions.product.accordionHeading",
+      "Value": "Gift options"
+    },
+    {
+      "Key": "Cart.GiftOptions.product.giftReceiptIncluded.title",
+      "Value": "Use gift receipt"
+    },
+    {
+      "Key": "Cart.GiftOptions.product.giftReceiptIncluded.subtitle",
+      "Value": "The receipt and order invoice will not show the price."
+    },
+    {
+      "Key": "Cart.GiftOptions.product.printedCardIncluded.title",
+      "Value": "Include printed card"
+    },
+    {
+      "Key": "Cart.GiftOptions.product.printedCardIncluded.subtitle",
+      "Value": ""
+    },
+    {
+      "Key": "Cart.GiftOptions.product.giftOptionsWrap.title",
+      "Value": "Gift wrap this item"
+    },
+    {
+      "Key": "Cart.GiftOptions.product.giftOptionsWrap.subtitle",
+      "Value": "Wrapping option:"
+    },
+    {
+      "Key": "Cart.GiftOptions.product.formContent.formTitle",
+      "Value": "Add a message to the item (optional)"
+    },
+    {
+      "Key": "Cart.GiftOptions.product.formContent.formTo",
+      "Value": "To"
+    },
+    {
+      "Key": "Cart.GiftOptions.product.formContent.formFrom",
+      "Value": "From"
+    },
+    {
+      "Key": "Cart.GiftOptions.product.formContent.giftMessageTitle",
+      "Value": "Gift message"
+    },
+    {
+      "Key": "Cart.GiftOptions.product.formContent.formToPlaceholder",
+      "Value": "Recipient's name"
+    },
+    {
+      "Key": "Cart.GiftOptions.product.formContent.formFromPlaceholder",
+      "Value": "Sender's name"
+    },
+    {
+      "Key": "Cart.GiftOptions.product.formContent.formMessagePlaceholder",
+      "Value": "Gift message"
+    },
+    {
+      "Key": "Cart.GiftOptions.product.readOnlyFormView.title",
+      "Value": "This item is a gift"
+    },
+    {
+      "Key": "Cart.GiftOptions.product.readOnlyFormView.wrapping",
+      "Value": "Wrapping:"
+    },
+    {
+      "Key": "Cart.GiftOptions.product.readOnlyFormView.recipient",
+      "Value": "To:"
+    },
+    {
+      "Key": "Cart.GiftOptions.product.readOnlyFormView.sender",
+      "Value": "From:"
+    },
+    {
+      "Key": "Cart.GiftOptions.product.readOnlyFormView.message",
+      "Value": "Message:"
     }
   ],
-  "total": 1,
+  "total": 171,
   "offset": 0,
-  "limit": 1
+  "limit": 171
 }

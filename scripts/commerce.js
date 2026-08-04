@@ -15,6 +15,12 @@ import {
   toClassName,
 } from './aem.js';
 import initializeDropins from './initializers/index.js';
+import {
+  installMagentoCatalogBridge,
+  installMagentoMediaUrlInterceptor,
+  rewriteMediaUrl,
+  shouldUseMagentoCatalogBridge,
+} from './magento-catalog-bridge.js';
 
 /**
  * Sanitizes the given string by:
@@ -131,7 +137,9 @@ export function preloadFile(href, as) {
   link.rel = 'preload';
   link.as = as;
   link.crossOrigin = 'anonymous';
-  link.href = href;
+  link.href = typeof href === 'string' && href.includes('/media/')
+    ? rewriteMediaUrl(href)
+    : href;
   document.head.appendChild(link);
 }
 
@@ -321,6 +329,16 @@ export async function loadCommerceLazy() {
 }
 
 /**
+ * Local Magento GraphQL proxy URL used to bypass PaaS CORS on localhost.
+ * Started via `npm run proxy:graphql` (included in `npm start`).
+ */
+function getLocalGraphqlProxyEndpoint() {
+  const isLocalHost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+  if (!isLocalHost) return null;
+  return 'http://127.0.0.1:3001/graphql';
+}
+
+/**
  * Initializes commerce configuration
  */
 export async function initializeCommerce() {
@@ -336,8 +354,13 @@ export async function initializeCommerce() {
     document.documentElement.lang = activeStoreView.locale.replace('_', '-');
   }
 
+  const localProxyEndpoint = getLocalGraphqlProxyEndpoint();
+  const coreEndpoint = localProxyEndpoint
+    || getConfigValue('commerce-core-endpoint')
+    || getConfigValue('commerce-endpoint');
+
   // Set Fetch GraphQL (Core)
-  CORE_FETCH_GRAPHQL.setEndpoint(getConfigValue('commerce-core-endpoint') || await getConfigValue('commerce-endpoint'));
+  CORE_FETCH_GRAPHQL.setEndpoint(coreEndpoint);
   CORE_FETCH_GRAPHQL.setFetchGraphQlHeaders((prev) => ({
     ...prev,
     ...getHeaders('all'),
@@ -345,13 +368,34 @@ export async function initializeCommerce() {
   }));
 
   // Set Fetch GraphQL (Catalog Service)
-  CS_FETCH_GRAPHQL.setEndpoint(await commerceEndpointWithQueryParams());
-  CS_FETCH_GRAPHQL.setFetchGraphQlHeaders((prev) => ({
-    ...prev,
-    ...getHeaders('cs'),
-    'Magento-Store-Code': activeStoreCode,
-    'Magento-Store-View-Code': activeStoreCode,
-  }));
+  const useMagentoCatalogBridge = shouldUseMagentoCatalogBridge();
+  if (useMagentoCatalogBridge || localProxyEndpoint) {
+    CS_FETCH_GRAPHQL.setEndpoint(coreEndpoint);
+    CS_FETCH_GRAPHQL.setFetchGraphQlHeaders((prev) => ({
+      ...prev,
+      ...getHeaders('all'),
+      Store: activeStoreCode,
+    }));
+  } else {
+    CS_FETCH_GRAPHQL.setEndpoint(await commerceEndpointWithQueryParams());
+    CS_FETCH_GRAPHQL.setFetchGraphQlHeaders((prev) => ({
+      ...prev,
+      ...getHeaders('cs'),
+      'Magento-Store-Code': activeStoreCode,
+      'Magento-Store-View-Code': activeStoreCode,
+    }));
+  }
+
+  // PaaS Magento without Live Search / Catalog Service: bridge productSearch
+  // to Magento core products GraphQL so PLP and header search work.
+  if (useMagentoCatalogBridge) {
+    installMagentoCatalogBridge();
+  }
+
+  // Local media proxy: Magento catalog images time out in the browser.
+  if (localProxyEndpoint || useMagentoCatalogBridge) {
+    installMagentoMediaUrlInterceptor();
+  }
 
   return initializeDropins();
 }
@@ -668,12 +712,16 @@ export async function commerceEndpointWithQueryParams() {
 
 /**
  * Extracts the SKU from the current URL path.
+ * Supports `/products/{urlKey}/{sku}` (legacy) and `/products/default?sku=`.
  * @returns {string|null} The SKU extracted from the URL, or null if not found
  */
 function getSkuFromUrl() {
+  const fromQuery = new URLSearchParams(window.location.search).get('sku');
+  if (fromQuery) return fromQuery;
+
   const path = window.location.pathname;
   const result = path.match(/\/products\/[\w|-]+\/([\w|-]+)$/);
-  return result?.[1];
+  return result?.[1] || null;
 }
 
 /**
@@ -710,15 +758,18 @@ export function isProductTemplate() {
 }
 
 export function getProductLink(urlKey, sku) {
-  if (!urlKey) {
-    console.warn('getProductLink: urlKey is missing or empty', { urlKey, sku });
-  }
   if (!sku) {
     console.warn('getProductLink: sku is missing or empty', { urlKey, sku });
+    return rootLink('/products/default');
   }
-  const sanitizedUrlKey = urlKey ? sanitizeName(urlKey) : '';
-  const sanitizedSku = sku ? sanitizeName(sku) : '';
-  return rootLink(`/products/${sanitizedUrlKey}/${sanitizedSku}`);
+
+  // Folder-mapped `/products/{urlKey}/{sku}` pages are not authored for Magento
+  // catalogs. Use the shared PDP template with a sku query param instead.
+  const params = new URLSearchParams({ sku: String(sku) });
+  if (urlKey) {
+    params.set('urlKey', sanitizeName(urlKey));
+  }
+  return rootLink(`/products/default?${params.toString()}`);
 }
 
 /**
@@ -730,7 +781,7 @@ export function getProductSku() {
     return getDefaultSkuFromBlock();
   }
 
-  return getMetadata('sku') || getSkuFromUrl();
+  return getSkuFromUrl() || getMetadata('sku') || (isProductTemplate() ? getDefaultSkuFromBlock() : null);
 }
 
 /**

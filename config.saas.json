@@ -1,10 +1,9 @@
 {
   "public": {
     "default": {
-      "commerce-core-endpoint": "https://adobe-enterprise2.developmentcloud.net/graphql",
-      "commerce-endpoint": "https://adobe-enterprise2.developmentcloud.net/graphql",
-      "commerce-catalog-bridge": true,
-      "app-management-base-url": "https://890003-christostestappname-developmentpaas.adobeioruntime.net/api/v1/web/stripe",
+      "commerce-core-endpoint": "https://na1-sandbox.api.commerce.adobe.com/XjRnU4rfv1hG6ihVjmXJdi/graphql",
+      "commerce-endpoint": "https://na1-sandbox.api.commerce.adobe.com/XjRnU4rfv1hG6ihVjmXJdi/graphql",
+      "stripe-app-builder-base-url": "https://890003-christostestappname-development.adobeioruntime.net/api/v1/web/stripe",
       "headers": {
         "all": {
           "Store": "default"
@@ -13,12 +12,12 @@
           "Magento-Store-Code": "default",
           "Magento-Store-View-Code": "default",
           "Magento-Website-Code": "base",
-          "Magento-Environment-Id": "71927655-5c2f-410c-809e-b0527a223952"
+          "Magento-Environment-Id": "XjRnU4rfv1hG6ihVjmXJdi"
         }
       },
       "commerce-b2b-enabled": false,
       "commerce-companies-enabled": false,
-      "commerce-assets-enabled": false,
+      "commerce-assets-enabled": true,
       "adobe-commerce-optimizer": false,
       "store-views": [
         {
@@ -43,11 +42,11 @@
       "analytics": {
         "base-currency-code": "USD",
         "environment": "Development",
-        "environment-id": "71927655-5c2f-410c-809e-b0527a223952",
+        "environment-id": "XjRnU4rfv1hG6ihVjmXJdi",
         "store-code": "default",
         "store-id": "default",
         "store-name": "Default Store View",
-        "store-url": "https://adobe-enterprise2.developmentcloud.net/",
+        "store-url": "https://na1-sandbox.api.commerce.adobe.com/XjRnU4rfv1hG6ihVjmXJdi/",
         "store-view-code": "default",
         "store-view-id": "default",
         "store-view-name": "Default Store View",

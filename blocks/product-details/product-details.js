@@ -38,6 +38,27 @@ import { IMAGES_SIZES } from '../../scripts/initializers/pdp.js';
 import '../../scripts/initializers/cart.js';
 import '../../scripts/initializers/wishlist.js';
 
+const CART_ACTION_TIMEOUT = 15000;
+
+function withTimeout(promise, timeout = CART_ACTION_TIMEOUT) {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new Error('The cart is taking too long to respond. Please try again.'));
+    }, timeout);
+
+    Promise.resolve(promise).then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 /**
  * Checks if the page has prerendered product JSON-LD data
  * @returns {boolean} True if product JSON-LD exists and contains @type=Product
@@ -61,8 +82,8 @@ function isProductPrerendered() {
 // Function to update the Add to Cart button text
 function updateAddToCartButtonText(addToCartInstance, inCart, labels) {
   const buttonText = inCart
-    ? labels.Global?.UpdateProductInCart
-    : labels.Global?.AddProductToCart;
+    ? (labels.Global?.UpdateProductInCart || 'Update cart')
+    : (labels.Global?.AddProductToCart || 'Add to cart');
   if (addToCartInstance) {
     addToCartInstance.setProps((prev) => ({
       ...prev,
@@ -98,6 +119,15 @@ function createProductVisual(product) {
   label.textContent = product?.name || product?.sku || 'Adobe Commerce product';
   visual.append(monogram, label);
   return visual;
+}
+
+function addImageErrorFallback(ctx, product) {
+  if (!ctx.addEventListener) return;
+
+  ctx.addEventListener('error', () => {
+    if (ctx.querySelector?.('.product-details__visual-placeholder')) return;
+    ctx.replaceChildren?.(createProductVisual(product));
+  }, { capture: true, once: true });
 }
 
 export default async function decorate(block) {
@@ -168,6 +198,7 @@ export default async function decorate(block) {
   const gallerySlots = {
     CarouselThumbnail: (ctx) => {
       if (ctx.mediaType === 'image') {
+        addImageErrorFallback(ctx, product);
         tryRenderAemAssetsImage(ctx, {
           ...imageSlotConfig(ctx),
           wrapper: document.createElement('span'),
@@ -177,6 +208,7 @@ export default async function decorate(block) {
 
     CarouselMainImage: (ctx) => {
       if (ctx.mediaType === 'image') {
+        addImageErrorFallback(ctx, product);
         tryRenderAemAssetsImage(ctx, {
           ...imageSlotConfig(ctx),
         });
@@ -279,20 +311,29 @@ export default async function decorate(block) {
   }
 
   // Configuration – Button - Add to Cart
+  const defaultButtonText = labels.Global?.AddProductToCart || 'Add to cart';
+  const defaultButtonIcon = h(Icon, { source: 'Cart' });
   const addToCart = await UI.render(Button, {
-    children: labels.Global?.AddProductToCart,
-    icon: h(Icon, { source: 'Cart' }),
+    children: defaultButtonText,
+    icon: defaultButtonIcon,
+    className: 'product-details__add-to-cart-button',
     onClick: async () => {
       const buttonActionText = isUpdateMode
-        ? labels.Global?.UpdatingInCart
-        : labels.Global?.AddingToCart;
+        ? (labels.Global?.UpdatingInCart || 'Updating cart…')
+        : (labels.Global?.AddingToCart || 'Adding to cart…');
       try {
         addToCart.setProps((prev) => ({
           ...prev,
           children: buttonActionText,
+          icon: h('span', {
+            class: 'product-details__add-to-cart-spinner',
+            'aria-hidden': 'true',
+          }),
+          className: 'product-details__add-to-cart-button product-details__add-to-cart-button--loading',
           disabled: true,
+          'aria-busy': 'true',
         }));
-        $addToCartStatus.textContent = buttonActionText ?? 'Adding to Cart';
+        $addToCartStatus.textContent = buttonActionText;
 
         // get the current selection values
         const values = pdpApi.getProductConfigurationValues();
@@ -306,7 +347,7 @@ export default async function decorate(block) {
               '@dropins/storefront-cart/api.js'
             );
 
-            await updateProductsFromCart([{ ...values, uid: itemUidFromUrl }]);
+            await withTimeout(updateProductsFromCart([{ ...values, uid: itemUidFromUrl }]));
 
             // --- START REDIRECT ON UPDATE ---
             const updatedSku = values?.sku;
@@ -330,7 +371,7 @@ export default async function decorate(block) {
           const { addProductsToCart } = await import(
             '@dropins/storefront-cart/api.js'
           );
-          await addProductsToCart([{ ...values }]);
+          await withTimeout(addProductsToCart([{ ...values }]));
         }
 
         // reset any previous alerts if successful
@@ -359,7 +400,10 @@ export default async function decorate(block) {
         // Re-enable button, unless the current variant is out of stock
         addToCart.setProps((prev) => ({
           ...prev,
+          icon: defaultButtonIcon,
+          className: 'product-details__add-to-cart-button',
           disabled: isOutOfStock,
+          'aria-busy': 'false',
         }));
         $addToCartStatus.textContent = '';
       }
@@ -589,13 +633,13 @@ function setMetaTags(product) {
  */
 function imageSlotConfig(ctx) {
   const { data, defaultImageProps } = ctx;
+  const params = Object.fromEntries(['width', 'height']
+    .map((key) => [key, Number(defaultImageProps?.[key])])
+    .filter(([, value]) => Number.isFinite(value) && value > 0));
+
   return {
     alias: data.sku,
     imageProps: defaultImageProps,
-
-    params: {
-      width: defaultImageProps.width,
-      height: defaultImageProps.height,
-    },
+    params,
   };
 }

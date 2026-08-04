@@ -3,9 +3,301 @@
     {
       "Key": "Storefront.Resource.Checkout",
       "Value": "loaded"
+    },
+    {
+      "Key": "Checkout.AddressValidation.title",
+      "Value": "Verify your address"
+    },
+    {
+      "Key": "Checkout.AddressValidation.subtitle",
+      "Value": "To ensure accurate delivery, we suggest the changes highlighted below. Please choose which address you would like to use. If neither option is correct, edit your address."
+    },
+    {
+      "Key": "Checkout.AddressValidation.suggestedAddress",
+      "Value": "Suggested Address"
+    },
+    {
+      "Key": "Checkout.AddressValidation.originalAddress",
+      "Value": "Original Address"
+    },
+    {
+      "Key": "Checkout.BillToShippingAddress.cartSyncError",
+      "Value": "We were unable to save your changes. Please try again later."
+    },
+    {
+      "Key": "Checkout.BillToShippingAddress.title",
+      "Value": "Bill to shipping address"
+    },
+    {
+      "Key": "Checkout.EmptyCart.button",
+      "Value": "Start shopping"
+    },
+    {
+      "Key": "Checkout.EmptyCart.title",
+      "Value": "Your cart is empty"
+    },
+    {
+      "Key": "Checkout.EstimateShipping.estimated",
+      "Value": "Estimated Shipping"
+    },
+    {
+      "Key": "Checkout.EstimateShipping.freeShipping",
+      "Value": "Free"
+    },
+    {
+      "Key": "Checkout.EstimateShipping.label",
+      "Value": "Shipping"
+    },
+    {
+      "Key": "Checkout.EstimateShipping.taxToBeDetermined",
+      "Value": "TBD"
+    },
+    {
+      "Key": "Checkout.EstimateShipping.withoutTaxes",
+      "Value": "Excluding taxes"
+    },
+    {
+      "Key": "Checkout.EstimateShipping.withTaxes",
+      "Value": "Including taxes"
+    },
+    {
+      "Key": "Checkout.LoginForm.account",
+      "Value": "Already have an account?"
+    },
+    {
+      "Key": "Checkout.LoginForm.ariaLabel",
+      "Value": "Email"
+    },
+    {
+      "Key": "Checkout.LoginForm.emailExists.alreadyHaveAccount",
+      "Value": "It looks like you already have an account."
+    },
+    {
+      "Key": "Checkout.LoginForm.emailExists.forFasterCheckout",
+      "Value": "for a faster checkout."
+    },
+    {
+      "Key": "Checkout.LoginForm.emailExists.signInButton",
+      "Value": "Sign in"
+    },
+    {
+      "Key": "Checkout.LoginForm.floatingLabel",
+      "Value": "Email *"
+    },
+    {
+      "Key": "Checkout.LoginForm.invalidEmailError",
+      "Value": "Please enter a valid email address."
+    },
+    {
+      "Key": "Checkout.LoginForm.missingEmailError",
+      "Value": "Enter an email address."
+    },
+    {
+      "Key": "Checkout.LoginForm.cartSyncError",
+      "Value": "We were unable to save your changes. Please try again later."
+    },
+    {
+      "Key": "Checkout.LoginForm.placeholder",
+      "Value": "Enter your email address"
+    },
+    {
+      "Key": "Checkout.LoginForm.signIn",
+      "Value": "Sign In"
+    },
+    {
+      "Key": "Checkout.LoginForm.signOut",
+      "Value": "Sign Out"
+    },
+    {
+      "Key": "Checkout.LoginForm.switch",
+      "Value": "Do you want to switch account?"
+    },
+    {
+      "Key": "Checkout.LoginForm.title",
+      "Value": "Contact details"
+    },
+    {
+      "Key": "Checkout.MergedCartBanner.items.many",
+      "Value": "{{count}} items from a previous session were added to your cart. Please review your new subtotal."
+    },
+    {
+      "Key": "Checkout.MergedCartBanner.items.one",
+      "Value": "1 item from a previous session was added to your cart. Please review your new subtotal."
+    },
+    {
+      "Key": "Checkout.OutOfStock.actions.removeOutOfStock",
+      "Value": "Remove out of stock items"
+    },
+    {
+      "Key": "Checkout.OutOfStock.actions.reviewCart",
+      "Value": "Review cart"
+    },
+    {
+      "Key": "Checkout.OutOfStock.alert",
+      "Value": "Out of stock!"
+    },
+    {
+      "Key": "Checkout.OutOfStock.lowInventory.many",
+      "Value": "Only {{count}} left!"
+    },
+    {
+      "Key": "Checkout.OutOfStock.lowInventory.one",
+      "Value": "Last item!"
+    },
+    {
+      "Key": "Checkout.OutOfStock.message",
+      "Value": "The following items are out of stock:"
+    },
+    {
+      "Key": "Checkout.OutOfStock.title",
+      "Value": "Your cart contains items that are out of stock"
+    },
+    {
+      "Key": "Checkout.PaymentMethods.cartSyncError",
+      "Value": "We were unable to save your changes. Please try again later."
+    },
+    {
+      "Key": "Checkout.PaymentMethods.emptyState",
+      "Value": "No payment methods available"
+    },
+    {
+      "Key": "Checkout.PaymentMethods.title",
+      "Value": "Payment"
+    },
+    {
+      "Key": "Checkout.PaymentOnAccount.referenceNumberLabel",
+      "Value": "Custom Reference Number"
+    },
+    {
+      "Key": "Checkout.PaymentOnAccount.referenceNumberPlaceholder",
+      "Value": "Enter custom reference number"
+    },
+    {
+      "Key": "Checkout.PaymentOnAccount.referenceNumberHint",
+      "Value": ""
+    },
+    {
+      "Key": "Checkout.PaymentOnAccount.availableCreditLabel",
+      "Value": "Available Credit"
+    },
+    {
+      "Key": "Checkout.PaymentOnAccount.exceedLimitWarning",
+      "Value": "The credit limit is {{creditLimit}}. It will be exceeded by {{exceededAmount}} with this order."
+    },
+    {
+      "Key": "Checkout.PaymentOnAccount.exceedLimitWarningPrefix",
+      "Value": "The credit limit is"
+    },
+    {
+      "Key": "Checkout.PaymentOnAccount.exceedLimitWarningMiddle",
+      "Value": ". It will be exceeded by"
+    },
+    {
+      "Key": "Checkout.PaymentOnAccount.exceedLimitWarningSuffix",
+      "Value": "with this order."
+    },
+    {
+      "Key": "Checkout.PaymentOnAccount.exceedLimitError",
+      "Value": "Payment On Account cannot be used for this order because your order amount exceeds your credit amount."
+    },
+    {
+      "Key": "Checkout.PurchaseOrder.missingReferenceNumberError",
+      "Value": "Reference number is required"
+    },
+    {
+      "Key": "Checkout.PurchaseOrder.referenceNumberHint",
+      "Value": ""
+    },
+    {
+      "Key": "Checkout.PurchaseOrder.referenceNumberLabel",
+      "Value": "Custom Reference Number"
+    },
+    {
+      "Key": "Checkout.PurchaseOrder.referenceNumberPlaceholder",
+      "Value": "Enter custom reference number"
+    },
+    {
+      "Key": "Checkout.PlaceOrder.button",
+      "Value": "Place Order"
+    },
+    {
+      "Key": "Checkout.ServerError.button",
+      "Value": "Try again"
+    },
+    {
+      "Key": "Checkout.ServerError.contactSupport",
+      "Value": "If you continue to have issues, please contact support."
+    },
+    {
+      "Key": "Checkout.ServerError.title",
+      "Value": "We were unable to process your order"
+    },
+    {
+      "Key": "Checkout.ServerError.unexpected",
+      "Value": "An unexpected error occurred while processing your order. Please try again later."
+    },
+    {
+      "Key": "Checkout.ServerError.permissionDenied",
+      "Value": "You do not have permission to complete checkout. Please contact your administrator for assistance."
+    },
+    {
+      "Key": "Checkout.Quote.permissionDenied",
+      "Value": "You do not have permission to checkout with this quote."
+    },
+    {
+      "Key": "Checkout.Quote.dataError",
+      "Value": "We were unable to retrieve the quote data. Please try again later."
+    },
+    {
+      "Key": "Checkout.ShippingMethods.accessibleOptionLabel",
+      "Value": "Shipping option"
+    },
+    {
+      "Key": "Checkout.ShippingMethods.cartSyncError",
+      "Value": "We were unable to save your changes. Please try again later."
+    },
+    {
+      "Key": "Checkout.ShippingMethods.emptyState",
+      "Value": "This order can't be shipped to the address provided. Please review the address details you entered and make sure they're correct."
+    },
+    {
+      "Key": "Checkout.ShippingMethods.title",
+      "Value": "Shipping options"
+    },
+    {
+      "Key": "Checkout.Summary.Edit",
+      "Value": "Edit"
+    },
+    {
+      "Key": "Checkout.Summary.heading",
+      "Value": "Your Cart ({count})"
+    },
+    {
+      "Key": "Checkout.Addresses.billToNewAddress",
+      "Value": "Bill to new address"
+    },
+    {
+      "Key": "Checkout.Addresses.shippingAddressTitle",
+      "Value": "Shipping address"
+    },
+    {
+      "Key": "Checkout.Addresses.billingAddressTitle",
+      "Value": "Billing address"
+    },
+    {
+      "Key": "Checkout.TermsAndConditions.error",
+      "Value": "Please accept the Terms and Conditions to continue."
+    },
+    {
+      "Key": "Checkout.TermsAndConditions.label",
+      "Value": "I have read, understand, and accept our <a href='https://www.adobe.com/legal/terms.html' target='_blank'>Terms of Use, Terms of Sales, Privacy Policy, and Return Policy</a>."
+    },
+    {
+      "Key": "Checkout.title",
+      "Value": "Checkout"
     }
   ],
-  "total": 1,
+  "total": 74,
   "offset": 0,
-  "limit": 1
+  "limit": 74
 }

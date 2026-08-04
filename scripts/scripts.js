@@ -181,6 +181,38 @@ function decorateButtons(main) {
 }
 
 /**
+ * Shows an immediate loading state while the catalog block and its data load.
+ * This must be created before commerce initialization because that step can
+ * wait on GraphQL before the normal AEM block loading UI is available.
+ * @returns {Function} Removes the loading state.
+ */
+function showCommercePageLoader(messageText) {
+  const loader = document.createElement('div');
+  loader.className = 'commerce-page-loader';
+  loader.setAttribute('role', 'status');
+  loader.setAttribute('aria-live', 'polite');
+
+  const spinner = document.createElement('span');
+  spinner.className = 'commerce-page-loader__spinner';
+  spinner.setAttribute('aria-hidden', 'true');
+
+  const message = document.createElement('span');
+  message.className = 'commerce-page-loader__message';
+  message.textContent = messageText;
+
+  loader.append(spinner, message);
+  document.body.append(loader);
+  document.body.classList.add('commerce-page-loading');
+
+  return () => {
+    loader.remove();
+    document.body.classList.remove('commerce-page-loading');
+  };
+}
+
+let hideCommercePageLoader;
+
+/**
  * Decorates the main element.
  * @param {Element} main The main element
  */
@@ -203,6 +235,15 @@ async function loadEager(doc) {
 
   const main = doc.querySelector('main');
   if (main) {
+    hideCommercePageLoader?.();
+    let loadingMessage = 'Loading page…';
+    if (main.querySelector('.product-list-page')) {
+      loadingMessage = 'Loading products…';
+    } else if (main.querySelector('.product-details')) {
+      loadingMessage = 'Loading product…';
+    }
+    hideCommercePageLoader = showCommercePageLoader(loadingMessage);
+
     try {
       await initializeCommerce();
       decorateMain(main);
@@ -234,7 +275,12 @@ async function loadLazy(doc) {
   loadHeader(doc.querySelector('header'));
 
   const main = doc.querySelector('main');
-  await loadSections(main);
+  try {
+    await loadSections(main);
+  } finally {
+    hideCommercePageLoader?.();
+    hideCommercePageLoader = undefined;
+  }
 
   const { hash } = window.location;
   const element = hash ? doc.getElementById(hash.substring(1)) : false;
