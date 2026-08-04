@@ -335,7 +335,53 @@ export async function loadCommerceLazy() {
 function getLocalGraphqlProxyEndpoint() {
   const isLocalHost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
   if (!isLocalHost) return null;
-  return 'http://127.0.0.1:3001/graphql';
+  return `http://${window.location.hostname}:3001/graphql`;
+}
+
+/**
+ * Prevents standalone drop-in GraphQL clients from bypassing the local proxy.
+ * Some drop-ins create their own FetchGraphQL instance from site config rather
+ * than linking to CORE_FETCH_GRAPHQL, so resolving only the shared endpoint is
+ * not enough to avoid Magento CORS errors during local development.
+ */
+function installLocalGraphqlFetchProxy() {
+  const proxyEndpoint = getLocalGraphqlProxyEndpoint();
+  if (!proxyEndpoint || window.fetch.localGraphqlProxyInstalled) return;
+
+  const configuredEndpoints = [
+    getConfigValue('commerce-core-endpoint'),
+    getConfigValue('commerce-endpoint'),
+  ].filter(Boolean).map((endpoint) => new URL(endpoint));
+  const nativeFetch = window.fetch.bind(window);
+
+  const localGraphqlFetch = (resource, options) => {
+    try {
+      const requestUrl = new URL(
+        resource instanceof Request ? resource.url : resource,
+        window.location.href,
+      );
+      const isConfiguredGraphql = configuredEndpoints.some((endpoint) => (
+        requestUrl.origin === endpoint.origin
+        && requestUrl.pathname === endpoint.pathname
+      ));
+
+      if (isConfiguredGraphql) {
+        const proxyUrl = new URL(proxyEndpoint);
+        proxyUrl.search = requestUrl.search;
+        if (resource instanceof Request) {
+          return nativeFetch(new Request(proxyUrl, resource), options);
+        }
+        return nativeFetch(proxyUrl, options);
+      }
+    } catch (error) {
+      console.warn('Unable to route GraphQL request through the local proxy.', error);
+    }
+
+    return nativeFetch(resource, options);
+  };
+
+  localGraphqlFetch.localGraphqlProxyInstalled = true;
+  window.fetch = localGraphqlFetch;
 }
 
 /**
@@ -356,6 +402,7 @@ export function getCommerceCoreEndpoint() {
 export async function initializeCommerce() {
   // Initialize Config
   initializeConfig(await getConfigFromSession());
+  installLocalGraphqlFetchProxy();
 
   const activeStoreCode = window.localStorage.getItem('store-view')
     || getConfigValue('headers.all.Store')
