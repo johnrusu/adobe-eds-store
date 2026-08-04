@@ -47,10 +47,12 @@ if (!TARGET) {
 const targetUrl = new URL(TARGET);
 const FORWARDED_HEADERS = [
   'accept',
+  'ac-price-book-id',
   'authorization',
   'content-type',
   'cookie',
   'magento-environment-id',
+  'magento-customer-group',
   'magento-store-code',
   'magento-store-view-code',
   'magento-website-code',

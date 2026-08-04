@@ -339,6 +339,18 @@ function getLocalGraphqlProxyEndpoint() {
 }
 
 /**
+ * Returns the browser-safe core GraphQL endpoint for the current environment.
+ * Local development must use the proxy because Magento does not allow the
+ * localhost browser origin directly.
+ * @returns {string} GraphQL endpoint URL
+ */
+export function getCommerceCoreEndpoint() {
+  return getLocalGraphqlProxyEndpoint()
+    || getConfigValue('commerce-core-endpoint')
+    || getConfigValue('commerce-endpoint');
+}
+
+/**
  * Initializes commerce configuration
  */
 export async function initializeCommerce() {
@@ -355,9 +367,7 @@ export async function initializeCommerce() {
   }
 
   const localProxyEndpoint = getLocalGraphqlProxyEndpoint();
-  const coreEndpoint = localProxyEndpoint
-    || getConfigValue('commerce-core-endpoint')
-    || getConfigValue('commerce-endpoint');
+  const coreEndpoint = getCommerceCoreEndpoint();
 
   // Set Fetch GraphQL (Core)
   CORE_FETCH_GRAPHQL.setEndpoint(coreEndpoint);

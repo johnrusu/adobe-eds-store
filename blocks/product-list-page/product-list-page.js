@@ -90,6 +90,7 @@ export default async function decorate(block) {
   window.history.replaceState({}, '', normalizedUrl.toString());
 
   // Request search based on the page type on block load
+  let searchFailed = false;
   if (config.urlpath) {
     // If it's a category page...
     await search({
@@ -104,6 +105,7 @@ export default async function decorate(block) {
         ...userFilters,
       ],
     }).catch(() => {
+      searchFailed = true;
       console.error('Error searching for products');
     });
   } else {
@@ -116,6 +118,7 @@ export default async function decorate(block) {
       // Always add visibility filter to the request
       filter: [visibilityFilter, ...userFilters],
     }).catch((e) => {
+      searchFailed = true;
       console.error('Error searching for products', e);
     });
   }
@@ -220,6 +223,18 @@ export default async function decorate(block) {
       },
     })($productList),
   ]);
+
+  if (searchFailed) {
+    block.classList.add('product-list-page--error');
+    $resultInfo.textContent = '';
+    $productList.replaceChildren();
+
+    const errorMessage = document.createElement('p');
+    errorMessage.className = 'product-list-page__error';
+    errorMessage.setAttribute('role', 'alert');
+    errorMessage.textContent = 'We could not load products. Please refresh the page and try again.';
+    $productList.append(errorMessage);
+  }
 
   // Listen for search results (event is fired before the block is rendered; eager: true)
   events.on('search/result', (payload) => {

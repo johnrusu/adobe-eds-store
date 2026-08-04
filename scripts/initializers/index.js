@@ -5,7 +5,12 @@ import { initializers } from '@dropins/tools/initializer.js';
 import { isAemAssetsEnabled } from '@dropins/tools/lib/aem/assets.js';
 import { getConfigValue, getRootPath } from '@dropins/tools/lib/aem/configs.js';
 import { FetchGraphQL } from '@dropins/tools/fetch-graphql.js';
-import { CORE_FETCH_GRAPHQL, CS_FETCH_GRAPHQL, fetchPlaceholders } from '../commerce.js';
+import {
+  CORE_FETCH_GRAPHQL,
+  CS_FETCH_GRAPHQL,
+  fetchPlaceholders,
+  getCommerceCoreEndpoint,
+} from '../commerce.js';
 
 const DROPIN_WEBSITE_COOKIE = 'dropin_website_path';
 const CART_STORE_VIEW_KEY = 'DROPIN__CART__STORE_VIEW';
@@ -46,10 +51,8 @@ const ASSIGN_CUSTOMER_CART = `mutation AssignCustomerCart($cartId: String!) {
 }`;
 
 async function migrateCustomerCartToStore(storeCode) {
-  const endpoint = getConfigValue('commerce-core-endpoint')
-    || getConfigValue('commerce-endpoint');
   const guestFetchGraphQL = new FetchGraphQL();
-  guestFetchGraphQL.setEndpoint(endpoint);
+  guestFetchGraphQL.setEndpoint(getCommerceCoreEndpoint());
   guestFetchGraphQL.setFetchGraphQlHeader('Store', storeCode);
 
   const guestResponse = await guestFetchGraphQL.fetchGraphQl(CREATE_GUEST_CART);
