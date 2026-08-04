@@ -698,6 +698,23 @@ function rewriteCustomerGroupUidQuery(query) {
   };
 }
 
+/**
+ * Newer account drop-ins query CustomerAddress.uid, while older PaaS Magento
+ * schemas expose only CustomerAddress.id. Preserve the response shape expected
+ * by the drop-in by aliasing id as uid for the affected account operations.
+ */
+function rewriteCustomerAddressUidQuery(query) {
+  if (
+    typeof query !== 'string'
+    || !/\b(?:GET_CUSTOMER_ADDRESS|CREATE_CUSTOMER_ADDRESS)\b/.test(query)
+    || !/\buid\b/.test(query)
+  ) {
+    return query;
+  }
+
+  return query.replace(/\buid\b/g, 'uid: id');
+}
+
 function mapCustomerGroupNameToUid(node) {
   if (!node || typeof node !== 'object') return;
   if (Array.isArray(node)) {
@@ -853,12 +870,43 @@ function fillUnsupportedOrderFields(node) {
   Object.values(node).forEach(fillUnsupportedOrderFields);
 }
 
+/**
+ * Magento can round selected_shipping_method.amount while leaving the matching
+ * available_shipping_methods amount unrounded. The checkout drop-in includes
+ * amount in its equality check, so that mismatch causes it to submit the same
+ * shipping method after every checkout update.
+ */
+function normalizeSelectedShippingMethodAmount(node) {
+  if (!node || typeof node !== 'object') return;
+  if (Array.isArray(node)) {
+    node.forEach(normalizeSelectedShippingMethodAmount);
+    return;
+  }
+
+  const availableMethods = node.available_shipping_methods;
+  const selectedMethod = node.selected_shipping_method;
+  if (Array.isArray(availableMethods) && selectedMethod) {
+    const matchingMethod = availableMethods.find((method) => (
+      method.carrier_code === selectedMethod.carrier_code
+      && method.method_code === selectedMethod.method_code
+    ));
+
+    if (matchingMethod?.amount && selectedMethod.amount) {
+      selectedMethod.amount.value = matchingMethod.amount.value;
+    }
+  }
+
+  Object.values(node).forEach(normalizeSelectedShippingMethodAmount);
+}
+
 async function fetchWithMagentoCompat(originalFetch, instance, query, options) {
-  const groupRewrite = rewriteCustomerGroupUidQuery(query);
+  const addressCompatibleQuery = rewriteCustomerAddressUidQuery(query);
+  const groupRewrite = rewriteCustomerGroupUidQuery(addressCompatibleQuery);
   const orderRewrite = stripUnsupportedOrderFields(groupRewrite.query);
   const response = await originalFetch.call(instance, orderRewrite.query, options);
 
   if (response?.data) {
+    normalizeSelectedShippingMethodAmount(response.data);
     if (groupRewrite.mapGroupUid) {
       mapCustomerGroupNameToUid(response.data);
     }
