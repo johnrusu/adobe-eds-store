@@ -23,6 +23,7 @@ loadCSS('/blocks/stripe-payment/stripe-payment.css');
 
 // Define the Stripe payment method code as a constant
 const STRIPE_PAYMENT_METHOD_CODE = 'oope_stripe';
+const STRIPE_REQUEST_TIMEOUT = 15000;
 
 // Store the loading promise to avoid multiple loading attempts
 let stripeLoadingPromise = null;
@@ -38,6 +39,22 @@ let pendingClientSecret = null;
 let pendingReturnUrl = null;
 let persistedPaymentMethodClientSecret = null;
 let paymentFormMounting = false;
+
+async function fetchStripeResource(resource, options = {}) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), STRIPE_REQUEST_TIMEOUT);
+
+  try {
+    return await fetch(resource, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error('Stripe did not respond in time. Please try again.');
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
 
 const RECOVERABLE_PAYMENT_SESSION_ERROR_PREFIXES = [
   'Complete shipping address is required to save the payment method for this cart.',
@@ -63,12 +80,19 @@ const loadStripeJs = () => {
     // Loading Stripe.js dynamically...
     const script = document.createElement('script');
     script.src = 'https://js.stripe.com/v3/';
+    const timeoutId = window.setTimeout(() => {
+      stripeLoadingPromise = null;
+      script.remove();
+      reject(new Error('Stripe.js did not load in time.'));
+    }, STRIPE_REQUEST_TIMEOUT);
     script.onload = () => {
       // Stripe.js loaded successfully
+      window.clearTimeout(timeoutId);
       resolve();
     };
     script.onerror = (error) => {
       // Failed to load Stripe.js
+      window.clearTimeout(timeoutId);
       stripeLoadingPromise = null; // Reset so we can try again next time
       reject(new Error('Failed to load Stripe.js'));
     };
@@ -179,7 +203,7 @@ async function createPaymentIntent(endpoint, request) {
   const selectedStore = window.localStorage.getItem('store-view') || 'default';
   headers.Store = selectedStore;
 
-  const response = await fetch(endpoint, {
+  const response = await fetchStripeResource(endpoint, {
     method: 'POST',
     headers,
     body: JSON.stringify(request),
@@ -480,7 +504,7 @@ async function mountPaymentForm(mountId) {
     const paymentConfig = parseStripeRuntimeConfig(stripePaymentMethod);
 
     // Fetch the Stripe Init Params
-    const stripeInitParams = await fetch(paymentConfig.getInitParamsUrl);
+    const stripeInitParams = await fetchStripeResource(paymentConfig.getInitParamsUrl);
 
     if (!stripeInitParams.ok) {
       throw new Error(
@@ -670,15 +694,10 @@ function renderStripePaymentMethod(ctx) {
   requestAnimationFrame(async () => {
     try {
       await loadStripeJs();
-
-      events.on(
-        'checkout/initialized',
-        (data) => {
-          checkoutData = data;
-          retryPaymentFormMount();
-        },
-        { eager: true },
-      );
+      checkoutData = events.lastPayload('checkout/updated')
+        || events.lastPayload('checkout/initialized')
+        || checkoutData;
+      retryPaymentFormMount();
     } catch (error) {
       $stripeContainer.classList.remove('stripe-elements-loading');
       displayStripeError(

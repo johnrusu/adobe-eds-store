@@ -357,6 +357,9 @@ export const renderPaymentMethods = async (container, creditCardFormRef) => rend
           },
         },
         oope_stripe: {
+          // Stripe needs to create its PaymentIntent before Commerce can receive
+          // the payment method's client_secret. Sync it in handleStripePayment.
+          autoSync: false,
           render: renderStripePaymentMethod,
         },
         [PaymentMethodCode.SMART_BUTTONS]: {
@@ -592,6 +595,7 @@ export const renderCustomerShippingAddresses = async (container, formRef, data) 
 
     const hasCartShippingAddress = Boolean(data.shippingAddresses?.[0]);
     let isFirstRenderShipping = true;
+    let previousShippingValues = null;
 
     // Create address setters with constants moved inside
     const setShippingAddressOnCart = setAddressOnCart({
@@ -616,11 +620,15 @@ export const renderCustomerShippingAddresses = async (container, formRef, data) 
       inputsDefaultValueSet,
       minifiedView: false,
       onAddressData: (values) => {
-        const canSetShippingAddressOnCart = !isFirstRenderShipping || !hasCartShippingAddress;
+        const serializedValues = JSON.stringify(values);
+        const addressChanged = serializedValues !== previousShippingValues;
+        previousShippingValues = serializedValues;
+        const canSetShippingAddressOnCart = addressChanged
+          && (!isFirstRenderShipping || !hasCartShippingAddress);
         if (canSetShippingAddressOnCart) setShippingAddressOnCart(values);
-        if (!hasCartShippingAddress) estimateShippingCostOnCart(values);
+        if (addressChanged && !hasCartShippingAddress) estimateShippingCostOnCart(values);
         if (isFirstRenderShipping) isFirstRenderShipping = false;
-        notifyShippingValues(values);
+        if (addressChanged) notifyShippingValues(values);
       },
       selectable: true,
       selectShipping: true,
@@ -665,6 +673,7 @@ export const renderCustomerBillingAddresses = async (container, formRef, data) =
 
     const hasCartBillingAddress = Boolean(data.billingAddress);
     let isFirstRenderBilling = true;
+    let previousBillingValues = null;
 
     // Create address setter with constants moved inside
     const setBillingAddressOnCart = setAddressOnCart({
@@ -684,10 +693,14 @@ export const renderCustomerBillingAddresses = async (container, formRef, data) =
       inputsDefaultValueSet,
       minifiedView: false,
       onAddressData: (values) => {
-        const canSetBillingAddressOnCart = !isFirstRenderBilling || !hasCartBillingAddress;
+        const serializedValues = JSON.stringify(values);
+        const addressChanged = serializedValues !== previousBillingValues;
+        previousBillingValues = serializedValues;
+        const canSetBillingAddressOnCart = addressChanged
+          && (!isFirstRenderBilling || !hasCartBillingAddress);
         if (canSetBillingAddressOnCart) setBillingAddressOnCart(values);
         if (isFirstRenderBilling) isFirstRenderBilling = false;
-        notifyBillingValues(values);
+        if (addressChanged) notifyBillingValues(values);
       },
       selectable: true,
       selectBilling: true,
@@ -727,6 +740,7 @@ export const renderAddressForm = async (container, formRef, data, addressType) =
       }
 
       let isFirstRender = true;
+      let previousAddressValues = null;
       const hasCartAddress = Boolean(isShipping ? data.shippingAddresses?.[0] : data.billingAddress);
 
       // Create address setter with appropriate API
@@ -770,17 +784,20 @@ export const renderAddressForm = async (container, formRef, data, addressType) =
         inputsDefaultValueSet,
         isOpen: true,
         onChange: (values) => {
-          const canSetAddressOnCart = !isFirstRender || !hasCartAddress;
+          const serializedValues = JSON.stringify(values);
+          const addressChanged = serializedValues !== previousAddressValues;
+          previousAddressValues = serializedValues;
+          const canSetAddressOnCart = addressChanged && (!isFirstRender || !hasCartAddress);
           if (canSetAddressOnCart) setAddressOnCartFn(values);
 
           // Only estimate shipping cost for shipping addresses when no cart address exists
-          if (isShipping && !hasCartAddress && estimateShippingCostOnCart) {
+          if (addressChanged && isShipping && !hasCartAddress && estimateShippingCostOnCart) {
             estimateShippingCostOnCart(values);
           }
 
           if (isFirstRender) isFirstRender = false;
 
-          notifyValues(values);
+          if (addressChanged) notifyValues(values);
         },
         showBillingCheckBox: false,
         showFormLoader: false,
