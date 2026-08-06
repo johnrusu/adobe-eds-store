@@ -56,12 +56,14 @@ async function fetchStripeResource(resource, options = {}) {
   }
 }
 
-const RECOVERABLE_PAYMENT_SESSION_ERROR_PREFIXES = [
-  'Complete shipping address is required to save the payment method for this cart.',
-  'Cart email is required to save payment method.',
-];
+const STRIPE_ZERO_DECIMAL_CURRENCIES = new Set([
+  'BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA',
+  'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF',
+]);
 
-const RECOVERABLE_PAYMENT_SESSION_MESSAGE = 'Complete your email and shipping address to load Stripe payment options.';
+const STRIPE_THREE_DECIMAL_CURRENCIES = new Set([
+  'BHD', 'JOD', 'KWD', 'OMR', 'TND',
+]);
 
 // Helper to ensure Stripe.js is loaded
 const loadStripeJs = () => {
@@ -158,6 +160,25 @@ function getActiveCartId(preferredCartId = null) {
   );
 }
 
+function getStripeAmount(cartDataParam = cartData) {
+  const total = cartDataParam?.total?.includingTax;
+  const value = Number(total?.value);
+  const currency = total?.currency?.toUpperCase();
+
+  if (!Number.isFinite(value) || value <= 0 || !currency) {
+    throw new Error('Cart total is unavailable for Stripe payment initialization.');
+  }
+
+  let fractionDigits = 2;
+  if (STRIPE_ZERO_DECIMAL_CURRENCIES.has(currency)) fractionDigits = 0;
+  if (STRIPE_THREE_DECIMAL_CURRENCIES.has(currency)) fractionDigits = 3;
+
+  return {
+    amount: Math.round(value * (10 ** fractionDigits)),
+    currency: currency.toLowerCase(),
+  };
+}
+
 function parseStripeRuntimeConfig(stripePaymentMethod) {
   const backendIntegrationUrl = stripePaymentMethod
     ?.oope_payment_method_config?.backend_integration_url;
@@ -217,81 +238,6 @@ async function createPaymentIntent(endpoint, request) {
   return data;
 }
 
-function isRecoverablePaymentSessionError(error) {
-  return RECOVERABLE_PAYMENT_SESSION_ERROR_PREFIXES.some((message) => (error?.message || '').startsWith(message));
-}
-
-function hasText(value) {
-  return typeof value === 'string' ? value.trim() !== '' : Boolean(value);
-}
-
-function firstPresentValue(...values) {
-  return values.find((value) => hasText(value));
-}
-
-function getAddressCountry(address) {
-  return firstPresentValue(
-    address?.country?.code,
-    address?.country?.value,
-    address?.countryCode,
-    address?.country_code,
-  );
-}
-
-function getAddressStreetLine1(address) {
-  if (Array.isArray(address?.street)) {
-    return address.street[0];
-  }
-
-  return firstPresentValue(address?.street, address?.street1, address?.line1);
-}
-
-function getCheckoutShippingAddress(checkoutDataParam) {
-  return (
-    checkoutDataParam?.shippingAddress
-    || checkoutDataParam?.shippingAddresses?.[0]
-    || checkoutDataParam?.shipping_address
-    || checkoutDataParam?.shipping_addresses?.[0]
-    || {}
-  );
-}
-
-function getMissingRequiredCheckoutFields(checkoutDataParam) {
-  const shippingAddress = getCheckoutShippingAddress(checkoutDataParam);
-  const requiredFields = [
-    ['email', checkoutDataParam?.email],
-    [
-      'shipping first name',
-      firstPresentValue(shippingAddress?.firstName, shippingAddress?.firstname),
-    ],
-    [
-      'shipping last name',
-      firstPresentValue(shippingAddress?.lastName, shippingAddress?.lastname),
-    ],
-    ['shipping street', getAddressStreetLine1(shippingAddress)],
-    ['shipping city', shippingAddress?.city],
-    ['shipping country', getAddressCountry(shippingAddress)],
-    [
-      'shipping phone',
-      firstPresentValue(shippingAddress?.telephone, shippingAddress?.phone),
-    ],
-  ];
-
-  return requiredFields
-    .filter(([, value]) => !hasText(value))
-    .map(([label]) => label);
-}
-
-function assertRequiredCheckoutFieldsComplete(checkoutDataParam) {
-  const missingFields = getMissingRequiredCheckoutFields(checkoutDataParam);
-
-  if (missingFields.length > 0) {
-    throw new Error(
-      `Complete required checkout details before loading Stripe payment options: ${missingFields.join(', ')}.`,
-    );
-  }
-}
-
 function shouldRetryPaymentFormMount() {
   return Boolean(
     checkoutData
@@ -329,7 +275,7 @@ function resetMountedPaymentElement() {
   pendingReturnUrl = null;
 }
 
-// Function to start payment flow when an OOPE method is selected
+// Create the PaymentIntent only after checkout and Stripe forms pass validation.
 async function startPayment(cartDataParam, checkoutDataParam) {
   // Locate the Stripe payment method
   const stripePaymentMethod = checkoutDataParam.availablePaymentMethods.find(
@@ -351,8 +297,6 @@ async function startPayment(cartDataParam, checkoutDataParam) {
       'Cart ID is not available for Stripe payment initialization.',
     );
   }
-
-  assertRequiredCheckoutFieldsComplete(checkoutDataParam);
 
   const cartFullName = `${checkoutDataParam?.billingAddress?.firstName || ''} ${checkoutDataParam?.billingAddress?.lastName || ''}`.trim();
   const beginCreatePaymentIntent = await createPaymentIntent(
@@ -470,6 +414,18 @@ function updateStripeBillingDetails() {
   }
 }
 
+function updateStripeCartTotal() {
+  if (!elements || pendingClientSecret || !elements.update) {
+    return;
+  }
+
+  try {
+    elements.update(getStripeAmount());
+  } catch (error) {
+    console.warn('Unable to update Stripe payment amount:', error);
+  }
+}
+
 async function mountPaymentForm(mountId) {
   if (paymentElement || paymentFormMounting) {
     return;
@@ -522,48 +478,9 @@ async function mountPaymentForm(mountId) {
   try {
     stripe = Stripe(initParams.publishableKey, initParams.options);
     stripe.registerAppInfo(initParams.appInfo);
-
-    // Create the PaymentIntent upfront so Elements uses the exact currency and
-    // amount returned by the OOPE backend instead of storefront-side totals.
-    let paymentIntentData;
-    try {
-      paymentIntentData = await startPayment(cartData, checkoutData);
-    } catch (paymentSessionError) {
-      paymentFormMounting = false;
-      if (isRecoverablePaymentSessionError(paymentSessionError)) {
-        console.info(
-          'Stripe payment session is waiting for checkout details:',
-          paymentSessionError.message,
-        );
-        displayStripeError(
-          RECOVERABLE_PAYMENT_SESSION_MESSAGE,
-          mountIdWithoutHash,
-        );
-        return;
-      }
-
-      displayStripeError(
-        paymentSessionError.message || 'Unable to create Stripe session.',
-        mountIdWithoutHash,
-      );
-      return;
-    }
-
-    if (!paymentIntentData?.client_secret) {
-      displayStripeError(
-        'Unable to create payment session. Please try again.',
-        mountIdWithoutHash,
-      );
-      paymentFormMounting = false;
-      return;
-    }
-
-    clearStripeError(mountIdWithoutHash);
-    pendingClientSecret = paymentIntentData.client_secret;
-    pendingReturnUrl = paymentIntentData.return_url;
-
     elements = stripe.elements({
-      clientSecret: pendingClientSecret,
+      mode: 'payment',
+      ...getStripeAmount(),
     });
 
     // Make sure the loading container is removed before mounting
@@ -626,26 +543,40 @@ async function handleStripePayment(cartId) {
     return false;
   }
 
+  try {
+    const { error: submitError } = await elements.submit();
+    if (submitError) {
+      displayStripeError(submitError.message || 'Please complete your payment details');
+      return false;
+    }
+  } catch (elemSubmitError) {
+    const errorMessage = elemSubmitError?.message || 'Unknown error submitting payment form';
+    displayStripeError(errorMessage);
+    return false;
+  }
+
   if (!pendingClientSecret) {
-    displayStripeError(
-      'Payment session expired. Please refresh and try again.',
-    );
+    try {
+      const paymentIntentData = await startPayment(cartData, checkoutData);
+      pendingClientSecret = paymentIntentData?.client_secret || null;
+      pendingReturnUrl = paymentIntentData?.return_url || null;
+    } catch (paymentSessionError) {
+      displayStripeError(
+        paymentSessionError.message || 'Unable to create Stripe session.',
+      );
+      return false;
+    }
+  }
+
+  if (!pendingClientSecret) {
+    displayStripeError('Unable to create payment session. Please try again.');
     return false;
   }
 
   const clientSecret = pendingClientSecret;
-
   const didPersistPaymentMethod = await persistStripePaymentMethod(clientSecret);
   if (!didPersistPaymentMethod) {
     displayStripeError('Failed to set the payment method.');
-    return false;
-  }
-
-  try {
-    await elements.submit();
-  } catch (elemSubmitError) {
-    const errorMessage = elemSubmitError?.message || 'Unknown error submitting payment form';
-    displayStripeError(errorMessage);
     return false;
   }
 
@@ -757,6 +688,7 @@ events.on(
   'cart/updated',
   (data) => {
     cartData = data;
+    updateStripeCartTotal();
     retryPaymentFormMount();
   },
   { eager: true },
