@@ -28,7 +28,11 @@ import ProductQuantity from '@dropins/storefront-pdp/containers/ProductQuantity.
 // Initializers
 import '../../initializers/cart.js';
 
-import { fetchPlaceholders, CS_FETCH_GRAPHQL } from '../../commerce.js';
+import {
+  fetchPlaceholders,
+  CS_FETCH_GRAPHQL,
+  getProductLink,
+} from '../../commerce.js';
 
 import { loadCSS } from '../../aem.js';
 
@@ -108,6 +112,8 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
       throw new Error('Product data not available');
     }
 
+    const productLink = getProductLink(product.urlKey, product.sku);
+
     // Set initial quantity using PDP API BEFORE rendering components
     setProductConfigurationValues((prev) => ({
       ...prev,
@@ -123,7 +129,7 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
       <div class="mini-pdp__alert"></div>
       <div class="mini-pdp__wrapper">
         <div class="mini-pdp__header">
-          <a href="/products/${product.urlKey}/${product.sku}" class="quick-view__close">
+          <a href="${productLink}" class="quick-view__close">
           ${product.name}
           </a>
         </div>
@@ -149,7 +155,7 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
           </div>
           <div class="mini-pdp__cancel-button"></div>
           <div class="mini-pdp__buttons__redirect-to-pdp">
-            <a href="/products/${product.urlKey}/${product.sku}">
+            <a href="${productLink}">
             </a>
           </div>
         </div>
@@ -316,7 +322,7 @@ export default async function createMiniPDP(cartItem, onUpdate, onClose) {
         onClick: () => {
           onClose();
           // Navigate to full PDP page
-          window.location.href = `/products/${product.urlKey}/${product.sku}`;
+          window.location.href = productLink;
         },
       })($redirectButton),
     ]);
