@@ -1,19 +1,19 @@
 {
-    "type": "object",
-    "properties": {
-      "event": {
-        "type": "string",
-        "const": "recs-unit-impression-render"
-      },
-      "eventInfo": {
-        "type": "object",
-        "properties": {
-          "unitId": {
-            "type": "string"
-          }
-        },
-        "required": ["unitId"]
-      }
+  "type": "object",
+  "properties": {
+    "event": {
+      "type": "string",
+      "const": "recs-unit-impression-render"
     },
-    "required": ["event", "eventInfo"]
-  }
+    "eventInfo": {
+      "type": "object",
+      "properties": {
+        "unitId": {
+          "type": "string"
+        }
+      },
+      "required": ["unitId"]
+    }
+  },
+  "required": ["event", "eventInfo"]
+}

@@ -52,8 +52,8 @@
       },
       "plugins": {
         "picker": {
-           "rootCategory": "{YOUR_ROOT_CATEGORY_ID}"
-         }
+          "rootCategory": "{YOUR_ROOT_CATEGORY_ID}"
+        }
       }
     }
   },
@@ -63,9 +63,7 @@
   "access": {
     "admin": {
       "role": {
-        "config_admin": [
-          "{ADMIN_USER_EMAIL}"
-        ]
+        "config_admin": ["{ADMIN_USER_EMAIL}"]
       },
       "requireAuth": "auto"
     }

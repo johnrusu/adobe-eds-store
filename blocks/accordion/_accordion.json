@@ -56,9 +56,7 @@
   "filters": [
     {
       "id": "accordion",
-      "components": [
-        "accordion-item"
-      ]
+      "components": ["accordion-item"]
     }
   ]
 }

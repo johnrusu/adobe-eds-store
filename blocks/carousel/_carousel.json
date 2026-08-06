@@ -21,8 +21,14 @@
           "rows": 1,
           "columns": 2,
           "fields": [
-            { "name": "backgroundImage", "selector": "div:nth-child(1)>picture>img[src]" },
-            { "name": "backgroundImageAlt", "selector": "div:nth-child(1)>picture>img[alt]" },
+            {
+              "name": "backgroundImage",
+              "selector": "div:nth-child(1)>picture>img[src]"
+            },
+            {
+              "name": "backgroundImageAlt",
+              "selector": "div:nth-child(1)>picture>img[alt]"
+            },
             { "name": "text", "selector": "div:nth-child(2)" }
           ]
         }

@@ -22,7 +22,7 @@
       }
     }
   ],
-"models": [
+  "models": [
     {
       "id": "image",
       "fields": [

@@ -40,25 +40,16 @@
           }
         },
         "pagePlacement": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "typeId": {
           "type": "string"
         },
         "yOffsetTop": {
-          "type": [
-            "number",
-            "null"
-          ]
+          "type": ["number", "null"]
         },
         "yOffsetBottom": {
-          "type": [
-            "number",
-            "null"
-          ]
+          "type": ["number", "null"]
         }
       },
       "required": [
@@ -93,10 +84,7 @@
           "type": "number"
         },
         "shortDescription": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "type": {
           "type": "string"
@@ -114,10 +102,7 @@
           "type": "number"
         },
         "weightType": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "currency": {
           "type": "string"
@@ -132,10 +117,7 @@
           "$ref": "#/definitions/Image"
         },
         "swatchImage": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "url": {
           "type": "string"
@@ -165,18 +147,13 @@
       "type": "object",
       "properties": {
         "label": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "url": {
           "type": "string"
         }
       },
-      "required": [
-        "url"
-      ]
+      "required": ["url"]
     },
     "Prices": {
       "type": "object",
@@ -188,10 +165,7 @@
           "$ref": "#/definitions/Price"
         }
       },
-      "required": [
-        "maximum",
-        "minimum"
-      ]
+      "required": ["maximum", "minimum"]
     },
     "Price": {
       "type": "object",
@@ -215,12 +189,7 @@
           }
         }
       },
-      "required": [
-        "finalAdjustments",
-        "final",
-        "regular",
-        "regularAdjustments"
-      ]
+      "required": ["finalAdjustments", "final", "regular", "regularAdjustments"]
     },
     "Adjustment": {
       "type": "object",
@@ -232,10 +201,7 @@
           "type": "number"
         }
       },
-      "required": [
-        "code",
-        "amount"
-      ]
+      "required": ["code", "amount"]
     }
   }
 }

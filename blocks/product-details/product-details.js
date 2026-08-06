@@ -3,27 +3,27 @@ import {
   Icon,
   Button,
   provider as UI,
-} from '@dropins/tools/components.js';
-import { h } from '@dropins/tools/preact.js';
-import { events } from '@dropins/tools/event-bus.js';
-import { tryRenderAemAssetsImage } from '@dropins/tools/lib/aem/assets.js';
-import * as pdpApi from '@dropins/storefront-pdp/api.js';
-import { render as pdpRendered } from '@dropins/storefront-pdp/render.js';
-import { render as wishlistRender } from '@dropins/storefront-wishlist/render.js';
+} from "@dropins/tools/components.js";
+import { h } from "@dropins/tools/preact.js";
+import { events } from "@dropins/tools/event-bus.js";
+import { tryRenderAemAssetsImage } from "@dropins/tools/lib/aem/assets.js";
+import * as pdpApi from "@dropins/storefront-pdp/api.js";
+import { render as pdpRendered } from "@dropins/storefront-pdp/render.js";
+import { render as wishlistRender } from "@dropins/storefront-wishlist/render.js";
 
-import { WishlistToggle } from '@dropins/storefront-wishlist/containers/WishlistToggle.js';
-import { WishlistAlert } from '@dropins/storefront-wishlist/containers/WishlistAlert.js';
+import { WishlistToggle } from "@dropins/storefront-wishlist/containers/WishlistToggle.js";
+import { WishlistAlert } from "@dropins/storefront-wishlist/containers/WishlistAlert.js";
 
 // Containers
-import ProductHeader from '@dropins/storefront-pdp/containers/ProductHeader.js';
-import ProductPrice from '@dropins/storefront-pdp/containers/ProductPrice.js';
-import ProductShortDescription from '@dropins/storefront-pdp/containers/ProductShortDescription.js';
-import ProductOptions from '@dropins/storefront-pdp/containers/ProductOptions.js';
-import ProductQuantity from '@dropins/storefront-pdp/containers/ProductQuantity.js';
-import ProductDescription from '@dropins/storefront-pdp/containers/ProductDescription.js';
-import ProductAttributes from '@dropins/storefront-pdp/containers/ProductAttributes.js';
-import ProductGallery from '@dropins/storefront-pdp/containers/ProductGallery.js';
-import ProductGiftCardOptions from '@dropins/storefront-pdp/containers/ProductGiftCardOptions.js';
+import ProductHeader from "@dropins/storefront-pdp/containers/ProductHeader.js";
+import ProductPrice from "@dropins/storefront-pdp/containers/ProductPrice.js";
+import ProductShortDescription from "@dropins/storefront-pdp/containers/ProductShortDescription.js";
+import ProductOptions from "@dropins/storefront-pdp/containers/ProductOptions.js";
+import ProductQuantity from "@dropins/storefront-pdp/containers/ProductQuantity.js";
+import ProductDescription from "@dropins/storefront-pdp/containers/ProductDescription.js";
+import ProductAttributes from "@dropins/storefront-pdp/containers/ProductAttributes.js";
+import ProductGallery from "@dropins/storefront-pdp/containers/ProductGallery.js";
+import ProductGiftCardOptions from "@dropins/storefront-pdp/containers/ProductGiftCardOptions.js";
 
 // Libs
 import {
@@ -31,19 +31,21 @@ import {
   setJsonLd,
   fetchPlaceholders,
   getProductLink,
-} from '../../scripts/commerce.js';
+} from "../../scripts/commerce.js";
 
 // Initializers
-import { IMAGES_SIZES } from '../../scripts/initializers/pdp.js';
-import '../../scripts/initializers/cart.js';
-import '../../scripts/initializers/wishlist.js';
+import { IMAGES_SIZES } from "../../scripts/initializers/pdp.js";
+import "../../scripts/initializers/cart.js";
+import "../../scripts/initializers/wishlist.js";
 
 const CART_ACTION_TIMEOUT = 15000;
 
 function withTimeout(promise, timeout = CART_ACTION_TIMEOUT) {
   return new Promise((resolve, reject) => {
     const timer = window.setTimeout(() => {
-      reject(new Error('The cart is taking too long to respond. Please try again.'));
+      reject(
+        new Error("The cart is taking too long to respond. Please try again."),
+      );
     }, timeout);
 
     Promise.resolve(promise).then(
@@ -64,7 +66,9 @@ function withTimeout(promise, timeout = CART_ACTION_TIMEOUT) {
  * @returns {boolean} True if product JSON-LD exists and contains @type=Product
  */
 function isProductPrerendered() {
-  const jsonLdScript = document.querySelector('script[type="application/ld+json"]');
+  const jsonLdScript = document.querySelector(
+    'script[type="application/ld+json"]',
+  );
 
   if (!jsonLdScript?.textContent) {
     return false;
@@ -72,9 +76,9 @@ function isProductPrerendered() {
 
   try {
     const jsonLd = JSON.parse(jsonLdScript.textContent);
-    return jsonLd?.['@type'] === 'Product';
+    return jsonLd?.["@type"] === "Product";
   } catch (error) {
-    console.debug('Failed to parse JSON-LD:', error);
+    console.debug("Failed to parse JSON-LD:", error);
     return false;
   }
 }
@@ -82,8 +86,8 @@ function isProductPrerendered() {
 // Function to update the Add to Cart button text
 function updateAddToCartButtonText(addToCartInstance, inCart, labels) {
   const buttonText = inCart
-    ? (labels.Global?.UpdateProductInCart || 'Update cart')
-    : (labels.Global?.AddProductToCart || 'Add to cart');
+    ? labels.Global?.UpdateProductInCart || "Update cart"
+    : labels.Global?.AddProductToCart || "Add to cart";
   if (addToCartInstance) {
     addToCartInstance.setProps((prev) => ({
       ...prev,
@@ -99,24 +103,26 @@ function updateAddToCartButtonText(addToCartInstance, inCart, labels) {
 function formatNumericAttributeValue(value) {
   const trimmed = value.trim();
   if (!/^[+-]?\d+(\.\d+)?$/.test(trimmed)) return value;
-  return new Intl.NumberFormat(document.documentElement.lang).format(Number(trimmed));
+  return new Intl.NumberFormat(document.documentElement.lang).format(
+    Number(trimmed),
+  );
 }
 
 function createProductVisual(product) {
-  const visual = document.createElement('div');
-  visual.className = 'product-details__visual-placeholder';
+  const visual = document.createElement("div");
+  visual.className = "product-details__visual-placeholder";
 
-  const monogram = document.createElement('span');
-  monogram.className = 'product-details__visual-placeholder-mark';
-  monogram.setAttribute('aria-hidden', 'true');
-  monogram.textContent = (product?.name || product?.sku || 'Product')
+  const monogram = document.createElement("span");
+  monogram.className = "product-details__visual-placeholder-mark";
+  monogram.setAttribute("aria-hidden", "true");
+  monogram.textContent = (product?.name || product?.sku || "Product")
     .split(/\s+/)
     .slice(0, 2)
     .map((word) => word.charAt(0))
-    .join('');
+    .join("");
 
-  const label = document.createElement('strong');
-  label.textContent = product?.name || product?.sku || 'Adobe Commerce product';
+  const label = document.createElement("strong");
+  label.textContent = product?.name || product?.sku || "Adobe Commerce product";
   visual.append(monogram, label);
   return visual;
 }
@@ -124,14 +130,18 @@ function createProductVisual(product) {
 function addImageErrorFallback(ctx, product) {
   if (!ctx.addEventListener) return;
 
-  ctx.addEventListener('error', () => {
-    if (ctx.querySelector?.('.product-details__visual-placeholder')) return;
-    ctx.replaceChildren?.(createProductVisual(product));
-  }, { capture: true, once: true });
+  ctx.addEventListener(
+    "error",
+    () => {
+      if (ctx.querySelector?.(".product-details__visual-placeholder")) return;
+      ctx.replaceChildren?.(createProductVisual(product));
+    },
+    { capture: true, once: true },
+  );
 }
 
 export default async function decorate(block) {
-  const eventProduct = events.lastPayload('pdp/data') ?? null;
+  const eventProduct = events.lastPayload("pdp/data") ?? null;
   // bug: the pdp sends an object with event data even if product is not found.
   const product = eventProduct?.sku ? eventProduct : null;
 
@@ -139,7 +149,7 @@ export default async function decorate(block) {
 
   // Read itemUid from URL
   const urlParams = new URLSearchParams(window.location.search);
-  const itemUidFromUrl = urlParams.get('itemUid');
+  const itemUidFromUrl = urlParams.get("itemUid");
 
   // State to track if we are in update mode
   let isUpdateMode = false;
@@ -175,39 +185,51 @@ export default async function decorate(block) {
     </div>
   `);
 
-  const $alert = fragment.querySelector('.product-details__alert');
-  const $gallery = fragment.querySelector('.product-details__gallery');
-  const $header = fragment.querySelector('.product-details__header');
-  const $price = fragment.querySelector('.product-details__price');
-  const $galleryMobile = fragment.querySelector('.product-details__right-column .product-details__gallery');
-  const $shortDescription = fragment.querySelector('.product-details__short-description');
-  const $options = fragment.querySelector('.product-details__options');
-  const $quantity = fragment.querySelector('.product-details__quantity');
-  const $giftCardOptions = fragment.querySelector('.product-details__gift-card-options');
-  const $addToCart = fragment.querySelector('.product-details__buttons__add-to-cart');
-  const $wishlistToggleBtn = fragment.querySelector('.product-details__buttons__add-to-wishlist');
+  const $alert = fragment.querySelector(".product-details__alert");
+  const $gallery = fragment.querySelector(".product-details__gallery");
+  const $header = fragment.querySelector(".product-details__header");
+  const $price = fragment.querySelector(".product-details__price");
+  const $galleryMobile = fragment.querySelector(
+    ".product-details__right-column .product-details__gallery",
+  );
+  const $shortDescription = fragment.querySelector(
+    ".product-details__short-description",
+  );
+  const $options = fragment.querySelector(".product-details__options");
+  const $quantity = fragment.querySelector(".product-details__quantity");
+  const $giftCardOptions = fragment.querySelector(
+    ".product-details__gift-card-options",
+  );
+  const $addToCart = fragment.querySelector(
+    ".product-details__buttons__add-to-cart",
+  );
+  const $wishlistToggleBtn = fragment.querySelector(
+    ".product-details__buttons__add-to-wishlist",
+  );
   // Kept mounted at all times so the "Adding to Cart" status is reliably
   // announced instead of relying on the button's text/disabled state
   // changing, which isn't announced by screen readers on its own.
-  const $addToCartStatus = fragment.querySelector('.product-details__add-to-cart-status');
-  const $description = fragment.querySelector('.product-details__description');
-  const $attributes = fragment.querySelector('.product-details__attributes');
+  const $addToCartStatus = fragment.querySelector(
+    ".product-details__add-to-cart-status",
+  );
+  const $description = fragment.querySelector(".product-details__description");
+  const $attributes = fragment.querySelector(".product-details__attributes");
 
   block.replaceChildren(fragment);
 
   const gallerySlots = {
     CarouselThumbnail: (ctx) => {
-      if (ctx.mediaType === 'image') {
+      if (ctx.mediaType === "image") {
         addImageErrorFallback(ctx, product);
         tryRenderAemAssetsImage(ctx, {
           ...imageSlotConfig(ctx),
-          wrapper: document.createElement('span'),
+          wrapper: document.createElement("span"),
         });
       }
     },
 
     CarouselMainImage: (ctx) => {
-      if (ctx.mediaType === 'image') {
+      if (ctx.mediaType === "image") {
         addImageErrorFallback(ctx, product);
         tryRenderAemAssetsImage(ctx, {
           ...imageSlotConfig(ctx),
@@ -218,7 +240,7 @@ export default async function decorate(block) {
 
   // Alert
   let inlineAlert = null;
-  const routeToWishlist = rootLink('/wishlist');
+  const routeToWishlist = rootLink("/wishlist");
 
   const [
     _galleryMobile,
@@ -235,10 +257,10 @@ export default async function decorate(block) {
   ] = await Promise.all([
     // Gallery (Mobile)
     pdpRendered.render(ProductGallery, {
-      controls: 'dots',
+      controls: "dots",
       arrows: true,
       peak: false,
-      gap: 'small',
+      gap: "small",
       loop: false,
       videos: true, // Display videos if available
       imageParams: {
@@ -250,10 +272,10 @@ export default async function decorate(block) {
 
     // Gallery (Desktop)
     pdpRendered.render(ProductGallery, {
-      controls: 'thumbnailsColumn',
+      controls: "thumbnailsColumn",
       arrows: true,
       peak: true,
-      gap: 'small',
+      gap: "small",
       loop: false,
       videos: true, // Display videos if available
       imageParams: {
@@ -279,7 +301,7 @@ export default async function decorate(block) {
         SwatchImage: (ctx) => {
           tryRenderAemAssetsImage(ctx, {
             ...imageSlotConfig(ctx),
-            wrapper: document.createElement('span'),
+            wrapper: document.createElement("span"),
           });
         },
       },
@@ -311,27 +333,28 @@ export default async function decorate(block) {
   }
 
   // Configuration – Button - Add to Cart
-  const defaultButtonText = labels.Global?.AddProductToCart || 'Add to cart';
-  const defaultButtonIcon = h(Icon, { source: 'Cart' });
+  const defaultButtonText = labels.Global?.AddProductToCart || "Add to cart";
+  const defaultButtonIcon = h(Icon, { source: "Cart" });
   const addToCart = await UI.render(Button, {
     children: defaultButtonText,
     icon: defaultButtonIcon,
-    className: 'product-details__add-to-cart-button',
+    className: "product-details__add-to-cart-button",
     onClick: async () => {
       const buttonActionText = isUpdateMode
-        ? (labels.Global?.UpdatingInCart || 'Updating cart…')
-        : (labels.Global?.AddingToCart || 'Adding to cart…');
+        ? labels.Global?.UpdatingInCart || "Updating cart…"
+        : labels.Global?.AddingToCart || "Adding to cart…";
       try {
         addToCart.setProps((prev) => ({
           ...prev,
           children: buttonActionText,
-          icon: h('span', {
-            class: 'product-details__add-to-cart-spinner',
-            'aria-hidden': 'true',
+          icon: h("span", {
+            class: "product-details__add-to-cart-spinner",
+            "aria-hidden": "true",
           }),
-          className: 'product-details__add-to-cart-button product-details__add-to-cart-button--loading',
+          className:
+            "product-details__add-to-cart-button product-details__add-to-cart-button--loading",
           disabled: true,
-          'aria-busy': 'true',
+          "aria-busy": "true",
         }));
         $addToCartStatus.textContent = buttonActionText;
 
@@ -343,34 +366,34 @@ export default async function decorate(block) {
         if (valid) {
           if (isUpdateMode) {
             // --- Update existing item ---
-            const { updateProductsFromCart } = await import(
-              '@dropins/storefront-cart/api.js'
-            );
+            const { updateProductsFromCart } =
+              await import("@dropins/storefront-cart/api.js");
 
-            await withTimeout(updateProductsFromCart([{ ...values, uid: itemUidFromUrl }]));
+            await withTimeout(
+              updateProductsFromCart([{ ...values, uid: itemUidFromUrl }]),
+            );
 
             // --- START REDIRECT ON UPDATE ---
             const updatedSku = values?.sku;
             if (updatedSku) {
               const cartRedirectUrl = new URL(
-                rootLink('/cart'),
+                rootLink("/cart"),
                 window.location.origin,
               );
-              cartRedirectUrl.searchParams.set('itemUid', itemUidFromUrl);
+              cartRedirectUrl.searchParams.set("itemUid", itemUidFromUrl);
               window.location.href = cartRedirectUrl.toString();
             } else {
               // Fallback if SKU is somehow missing (shouldn't happen in normal flow)
               console.warn(
-                'Could not retrieve SKU for updated item. Redirecting to cart without parameter.',
+                "Could not retrieve SKU for updated item. Redirecting to cart without parameter.",
               );
-              window.location.href = rootLink('/cart');
+              window.location.href = rootLink("/cart");
             }
             return;
           }
           // --- Add new item ---
-          const { addProductsToCart } = await import(
-            '@dropins/storefront-cart/api.js'
-          );
+          const { addProductsToCart } =
+            await import("@dropins/storefront-cart/api.js");
           await withTimeout(addProductsToCart([{ ...values }]));
         }
 
@@ -379,11 +402,11 @@ export default async function decorate(block) {
       } catch (error) {
         // add alert message
         inlineAlert = await UI.render(InLineAlert, {
-          heading: 'Error',
+          heading: "Error",
           description: error.message,
-          icon: h(Icon, { source: 'Warning' }),
-          'aria-live': 'assertive',
-          role: 'alert',
+          icon: h(Icon, { source: "Warning" }),
+          "aria-live": "assertive",
+          role: "alert",
           onDismiss: () => {
             inlineAlert.remove();
           },
@@ -391,8 +414,8 @@ export default async function decorate(block) {
 
         // Scroll the alertWrapper into view
         $alert.scrollIntoView({
-          behavior: 'smooth',
-          block: 'center',
+          behavior: "smooth",
+          block: "center",
         });
       } finally {
         // Reset button text using the helper function which respects the current mode
@@ -401,48 +424,66 @@ export default async function decorate(block) {
         addToCart.setProps((prev) => ({
           ...prev,
           icon: defaultButtonIcon,
-          className: 'product-details__add-to-cart-button',
+          className: "product-details__add-to-cart-button",
           disabled: isOutOfStock,
-          'aria-busy': 'false',
+          "aria-busy": "false",
         }));
-        $addToCartStatus.textContent = '';
+        $addToCartStatus.textContent = "";
       }
     },
   })($addToCart);
 
   // Lifecycle Events
-  events.on('pdp/data', (data) => {
-    isOutOfStock = data?.inStock === false;
-    addToCart.setProps((prev) => ({ ...prev, disabled: isOutOfStock }));
-  }, { eager: true });
+  events.on(
+    "pdp/data",
+    (data) => {
+      isOutOfStock = data?.inStock === false;
+      addToCart.setProps((prev) => ({ ...prev, disabled: isOutOfStock }));
+    },
+    { eager: true },
+  );
 
-  events.on('pdp/valid', (valid) => {
-    // update add to cart button disabled state based on product selection validity and stock status
-    addToCart.setProps((prev) => ({ ...prev, disabled: isOutOfStock || !valid }));
-  }, { eager: true });
+  events.on(
+    "pdp/valid",
+    (valid) => {
+      // update add to cart button disabled state based on product selection validity and stock status
+      addToCart.setProps((prev) => ({
+        ...prev,
+        disabled: isOutOfStock || !valid,
+      }));
+    },
+    { eager: true },
+  );
 
   // Handle option changes
-  events.on('pdp/values', () => {
-    if (wishlistToggleBtn) {
-      const configValues = pdpApi.getProductConfigurationValues();
+  events.on(
+    "pdp/values",
+    () => {
+      if (wishlistToggleBtn) {
+        const configValues = pdpApi.getProductConfigurationValues();
 
-      // Check URL parameter for empty optionsUIDs
-      const urlOptionsUIDs = urlParams.get('optionsUIDs');
+        // Check URL parameter for empty optionsUIDs
+        const urlOptionsUIDs = urlParams.get("optionsUIDs");
 
-      // If URL has empty optionsUIDs parameter, treat as base product (no options)
-      const optionUIDs = urlOptionsUIDs === '' ? undefined : (configValues?.optionsUIDs || undefined);
+        // If URL has empty optionsUIDs parameter, treat as base product (no options)
+        const optionUIDs =
+          urlOptionsUIDs === ""
+            ? undefined
+            : configValues?.optionsUIDs || undefined;
 
-      wishlistToggleBtn.setProps((prev) => ({
-        ...prev,
-        product: {
-          ...product,
-          optionUIDs,
-        },
-      }));
-    }
-  }, { eager: true });
+        wishlistToggleBtn.setProps((prev) => ({
+          ...prev,
+          product: {
+            ...product,
+            optionUIDs,
+          },
+        }));
+      }
+    },
+    { eager: true },
+  );
 
-  events.on('wishlist/alert', ({ action, item }) => {
+  events.on("wishlist/alert", ({ action, item }) => {
     wishlistRender.render(WishlistAlert, {
       action,
       item,
@@ -450,20 +491,20 @@ export default async function decorate(block) {
     })($alert);
 
     setTimeout(() => {
-      $alert.innerHTML = '';
+      $alert.innerHTML = "";
     }, 5000);
 
     setTimeout(() => {
       $alert.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center',
+        behavior: "smooth",
+        block: "center",
       });
     }, 0);
   });
 
   // --- Add new event listener for cart/data ---
   events.on(
-    'cart/data',
+    "cart/data",
     (cartData) => {
       let itemIsInCart = false;
       if (itemUidFromUrl && cartData?.items) {
@@ -481,14 +522,18 @@ export default async function decorate(block) {
   );
 
   // Set JSON-LD and Meta Tags
-  events.on('aem/lcp', () => {
-    const isPrerendered = isProductPrerendered();
-    if (product && !isPrerendered) {
-      setJsonLdProduct(product);
-      setMetaTags(product);
-      document.title = product.name;
-    }
-  }, { eager: true });
+  events.on(
+    "aem/lcp",
+    () => {
+      const isPrerendered = isProductPrerendered();
+      if (product && !isPrerendered) {
+        setJsonLdProduct(product);
+        setMetaTags(product);
+        document.title = product.name;
+      }
+    },
+    { eager: true },
+  );
 
   return Promise.resolve();
 }
@@ -506,10 +551,11 @@ async function setJsonLdProduct(product) {
     attributes,
   } = product;
   const amount = priceRange?.minimum?.final?.amount || price?.final?.amount;
-  const brand = attributes?.find((attr) => attr.name === 'brand');
+  const brand = attributes?.find((attr) => attr.name === "brand");
 
   // get variants
-  const { data } = await pdpApi.fetchGraphQl(`
+  const { data } = await pdpApi.fetchGraphQl(
+    `
     query GET_PRODUCT_VARIANTS($sku: String!) {
       variants(sku: $sku) {
         variants {
@@ -529,55 +575,63 @@ async function setJsonLdProduct(product) {
         }
       }
     }
-  `, {
-    method: 'GET',
-    variables: { sku },
-  });
+  `,
+    {
+      method: "GET",
+      variables: { sku },
+    },
+  );
 
   const variants = data?.variants?.variants || [];
 
   const ldJson = {
-    '@context': 'http://schema.org',
-    '@type': 'Product',
+    "@context": "http://schema.org",
+    "@type": "Product",
     name,
     description,
     image: images[0]?.url,
     offers: [],
     productID: sku,
     brand: {
-      '@type': 'Brand',
+      "@type": "Brand",
       name: brand?.value,
     },
     url: new URL(getProductLink(urlKey, sku), window.location),
     sku,
-    '@id': new URL(getProductLink(urlKey, sku), window.location),
+    "@id": new URL(getProductLink(urlKey, sku), window.location),
   };
 
   if (variants.length > 1) {
-    ldJson.offers.push(...variants
-      // A variant can come back without a resolved product (e.g. an
-      // unavailable option combination); skip those so JSON-LD generation
-      // doesn't throw on null property access.
-      .filter((variant) => variant.product)
-      .map((variant) => ({
-        '@type': 'Offer',
-        name: variant.product.name,
-        image: variant.product.images?.[0]?.url,
-        price: variant.product.price?.final?.amount?.value,
-        priceCurrency: variant.product.price?.final?.amount?.currency,
-        availability: variant.product.inStock ? 'http://schema.org/InStock' : 'http://schema.org/OutOfStock',
-        sku: variant.product.sku,
-      })));
+    ldJson.offers.push(
+      ...variants
+        // A variant can come back without a resolved product (e.g. an
+        // unavailable option combination); skip those so JSON-LD generation
+        // doesn't throw on null property access.
+        .filter((variant) => variant.product)
+        .map((variant) => ({
+          "@type": "Offer",
+          name: variant.product.name,
+          image: variant.product.images?.[0]?.url,
+          price: variant.product.price?.final?.amount?.value,
+          priceCurrency: variant.product.price?.final?.amount?.currency,
+          availability: variant.product.inStock
+            ? "http://schema.org/InStock"
+            : "http://schema.org/OutOfStock",
+          sku: variant.product.sku,
+        })),
+    );
   } else {
     ldJson.offers.push({
-      '@type': 'Offer',
+      "@type": "Offer",
       price: amount?.value,
       priceCurrency: amount?.currency,
-      availability: inStock ? 'http://schema.org/InStock' : 'http://schema.org/OutOfStock',
+      availability: inStock
+        ? "http://schema.org/InStock"
+        : "http://schema.org/OutOfStock",
     });
   }
 
-  setJsonLd(ldJson, 'product');
+  setJsonLd(ldJson, "product");
 }
 
 function createMetaTag(property, content, type) {
@@ -591,15 +645,15 @@ function createMetaTag(property, content, type) {
       return;
     }
     meta.setAttribute(type, property);
-    meta.setAttribute('content', content);
+    meta.setAttribute("content", content);
     return;
   }
   if (!content) {
     return;
   }
-  meta = document.createElement('meta');
+  meta = document.createElement("meta");
   meta.setAttribute(type, property);
-  meta.setAttribute('content', content);
+  meta.setAttribute("content", content);
   document.head.appendChild(meta);
 }
 
@@ -608,22 +662,25 @@ function setMetaTags(product) {
     return;
   }
 
-  const price = product.prices.final.minimumAmount ?? product.prices.final.amount;
+  const price =
+    product.prices.final.minimumAmount ?? product.prices.final.amount;
 
-  createMetaTag('title', product.metaTitle || product.name, 'name');
-  createMetaTag('description', product.metaDescription, 'name');
-  createMetaTag('keywords', product.metaKeyword, 'name');
+  createMetaTag("title", product.metaTitle || product.name, "name");
+  createMetaTag("description", product.metaDescription, "name");
+  createMetaTag("keywords", product.metaKeyword, "name");
 
-  createMetaTag('og:type', 'product', 'property');
-  createMetaTag('og:description', product.shortDescription, 'property');
-  createMetaTag('og:title', product.metaTitle || product.name, 'property');
-  createMetaTag('og:url', window.location.href, 'property');
-  const mainImage = product?.images?.filter((image) => image.roles.includes('thumbnail'))[0];
+  createMetaTag("og:type", "product", "property");
+  createMetaTag("og:description", product.shortDescription, "property");
+  createMetaTag("og:title", product.metaTitle || product.name, "property");
+  createMetaTag("og:url", window.location.href, "property");
+  const mainImage = product?.images?.filter((image) =>
+    image.roles.includes("thumbnail"),
+  )[0];
   const metaImage = mainImage?.url || product?.images[0]?.url;
-  createMetaTag('og:image', metaImage, 'property');
-  createMetaTag('og:image:secure_url', metaImage, 'property');
-  createMetaTag('product:price:amount', price.value, 'property');
-  createMetaTag('product:price:currency', price.currency, 'property');
+  createMetaTag("og:image", metaImage, "property");
+  createMetaTag("og:image:secure_url", metaImage, "property");
+  createMetaTag("product:price:amount", price.value, "property");
+  createMetaTag("product:price:currency", price.currency, "property");
 }
 
 /**
@@ -633,9 +690,11 @@ function setMetaTags(product) {
  */
 function imageSlotConfig(ctx) {
   const { data, defaultImageProps } = ctx;
-  const params = Object.fromEntries(['width', 'height']
-    .map((key) => [key, Number(defaultImageProps?.[key])])
-    .filter(([, value]) => Number.isFinite(value) && value > 0));
+  const params = Object.fromEntries(
+    ["width", "height"]
+      .map((key) => [key, Number(defaultImageProps?.[key])])
+      .filter(([, value]) => Number.isFinite(value) && value > 0),
+  );
 
   return {
     alias: data.sku,

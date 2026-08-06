@@ -60,9 +60,7 @@
   "filters": [
     {
       "id": "columns",
-      "components": [
-        "columns-row"
-      ]
+      "components": ["columns-row"]
     },
     {
       "id": "columns-row",
@@ -70,10 +68,7 @@
     },
     {
       "id": "columns-cell",
-      "components": [
-        "text",
-        "image"
-      ]
+      "components": ["text", "image"]
     }
   ]
 }
