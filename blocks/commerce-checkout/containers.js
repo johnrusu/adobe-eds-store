@@ -68,6 +68,7 @@ import {
   fetchPlaceholders,
   rootLink,
 } from '../../scripts/commerce.js';
+import renderExpressCheckout from '../express-checkout/stripe-express-checkout.js';
 import { renderStripePaymentMethod } from '../stripe-payment/stripe-payment.js';
 
 // Constants
@@ -337,13 +338,29 @@ export const renderShippingMethods = async (container) => renderContainer(
  * Renders payment methods with credit card integration - original regular checkout functionality
  * @param {HTMLElement} container - DOM element to render payment methods in
  * @param {Object} creditCardFormRef - React-style ref for credit card form
+ * @param {Object} options - Additional payment integration options
+ * @param {Function} options.handleExpressValidation - Express Checkout validation callback
  * @returns {Promise<Object>} - The rendered payment methods component
  */
-export const renderPaymentMethods = async (container, creditCardFormRef) => renderContainer(
+export const renderPaymentMethods = async (
+  container,
+  creditCardFormRef,
+  options = {},
+) => renderContainer(
   CONTAINERS.PAYMENT_METHODS,
   async () => CheckoutProvider.render(PaymentMethods, {
     slots: {
+      Title: (ctx) => {
+        const expressCheckout = document.createElement('div');
+        ctx.appendChild(expressCheckout);
+        renderExpressCheckout(expressCheckout, {
+          handleValidation: options.handleExpressValidation,
+        });
+      },
       Methods: {
+        checkmo: {
+          enabled: false,
+        },
         [PaymentMethodCode.CREDIT_CARD]: {
           render: (ctx) => {
             const $creditCard = document.createElement('div');
@@ -357,8 +374,7 @@ export const renderPaymentMethods = async (container, creditCardFormRef) => rend
           },
         },
         oope_stripe: {
-          // Stripe needs to create its PaymentIntent before Commerce can receive
-          // the payment method's client_secret. Sync it in handleStripePayment.
+          // Stripe creates its PaymentIntent after checkout validation.
           autoSync: false,
           render: renderStripePaymentMethod,
         },

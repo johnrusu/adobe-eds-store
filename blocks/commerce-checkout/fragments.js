@@ -14,6 +14,7 @@ export const selectors = Object.freeze({
     loaderStatus: '.checkout__loader-status',
     mergedCartBanner: '.checkout__merged-cart-banner',
     heading: '.checkout__heading',
+    localTestingNotice: '.checkout__local-testing-notice',
     serverError: '.checkout__server-error',
     outOfStock: '.checkout__out-of-stock',
     login: '.checkout__login',
@@ -49,6 +50,7 @@ export function createCheckoutFragment() {
         <div class="checkout__merged-cart-banner"></div>
         <div class="checkout__main">
           <div class="checkout__heading ${CHECKOUT_BLOCK}"></div>
+          <div class="checkout__local-testing-notice ${CHECKOUT_BLOCK}"></div>
           <div class="checkout__server-error ${CHECKOUT_BLOCK}"></div>
           <div class="checkout__out-of-stock ${CHECKOUT_BLOCK}"></div>
           <div class="checkout__login ${CHECKOUT_BLOCK}"></div>

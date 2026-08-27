@@ -26,6 +26,21 @@
     margin: 0;
 }
 
+.commerce-checkout .checkout__local-testing-notice {
+    overflow: hidden;
+}
+
+.commerce-checkout .checkout__local-testing-commands {
+    display: grid;
+    gap: var(--spacing-xxsmall);
+    margin: var(--spacing-xsmall) 0 0;
+    padding-left: var(--spacing-big);
+}
+
+.commerce-checkout .checkout__local-testing-commands code {
+    overflow-wrap: anywhere;
+}
+
 /* Block dividers */
 .checkout__block.checkout__heading .dropin-header-container {
     gap: var(--spacing-xsmall);

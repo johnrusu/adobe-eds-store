@@ -4,6 +4,12 @@
 // Dropin Tools
 import { events } from '@dropins/tools/event-bus.js';
 import { initReCaptcha } from '@dropins/tools/recaptcha.js';
+import {
+  Icon,
+  InLineAlert,
+  provider as UI,
+} from '@dropins/tools/components.js';
+import { h } from '@dropins/tools/preact.js';
 
 // Order Dropin Modules
 import * as orderApi from '@dropins/storefront-order/api.js';
@@ -87,6 +93,48 @@ function redirectToCartIfEmpty(cartData) {
   }
 }
 
+function renderLocalTestingNotice(container) {
+  const isLocal = ['localhost', '127.0.0.1'].includes(
+    window.location.hostname,
+  );
+  if (!isLocal) return null;
+
+  const commands = h(
+    'ul',
+    { className: 'checkout__local-testing-commands' },
+    h(
+      'li',
+      {},
+      h('strong', {}, 'Windows: '),
+      h(
+        'code',
+        {},
+        'chrome.exe --user-data-dir="C:\\Chrome dev session" --disable-web-security',
+      ),
+    ),
+    h(
+      'li',
+      {},
+      h('strong', {}, 'macOS: '),
+      h(
+        'code',
+        {},
+        'open -n -a /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --args --user-data-dir="/tmp/chrome_dev_test" --disable-web-security',
+      ),
+    ),
+  );
+
+  return UI.render(InLineAlert, {
+    heading: 'Local checkout testing',
+    description: 'CORS debugging may require Chrome with web security disabled. Use a dedicated profile only—do not browse normally in that session. This only bypasses browser CORS checks; Stripe Express Checkout still requires HTTPS and a registered domain.',
+    type: 'warning',
+    variant: 'primary',
+    icon: h(Icon, { source: 'WarningWithCircle' }),
+    itemList: commands,
+    role: 'note',
+  })(container);
+}
+
 export default async function decorate(block) {
   setMetaTags('Checkout');
   document.title = 'Checkout';
@@ -122,6 +170,9 @@ export default async function decorate(block) {
   const $loaderStatus = getElement(selectors.checkout.loaderStatus);
   const $mergedCartBanner = getElement(selectors.checkout.mergedCartBanner);
   const $heading = getElement(selectors.checkout.heading);
+  const $localTestingNotice = getElement(
+    selectors.checkout.localTestingNotice,
+  );
   const $serverError = getElement(selectors.checkout.serverError);
   const $outOfStock = getElement(selectors.checkout.outOfStock);
   const $login = getElement(selectors.checkout.login);
@@ -143,6 +194,10 @@ export default async function decorate(block) {
     { name: SHIPPING_FORM_NAME, ref: shippingFormRef },
     { name: BILLING_FORM_NAME, ref: billingFormRef },
     { name: PURCHASE_ORDER_FORM_NAME },
+    { name: TERMS_AND_CONDITIONS_FORM_NAME },
+  ]);
+
+  const handleExpressValidation = () => validateForms([
     { name: TERMS_AND_CONDITIONS_FORM_NAME },
   ]);
 
@@ -182,6 +237,7 @@ export default async function decorate(block) {
   const [
     _mergedCartBanner,
     _header,
+    _localTestingNotice,
     _serverError,
     _outOfStock,
     _loginForm,
@@ -199,6 +255,8 @@ export default async function decorate(block) {
 
     renderCheckoutHeader($heading, 'Checkout'),
 
+    renderLocalTestingNotice($localTestingNotice),
+
     renderServerError($serverError, $content),
 
     renderOutOfStock($outOfStock),
@@ -211,7 +269,9 @@ export default async function decorate(block) {
 
     renderShippingMethods($delivery),
 
-    renderPaymentMethods($paymentMethods, creditCardFormRef),
+    renderPaymentMethods($paymentMethods, creditCardFormRef, {
+      handleExpressValidation,
+    }),
 
     renderBillingAddressFormSkeleton($billingForm),
 

@@ -24,6 +24,7 @@ loadCSS('/blocks/stripe-payment/stripe-payment.css');
 // Define the Stripe payment method code as a constant
 const STRIPE_PAYMENT_METHOD_CODE = 'oope_stripe';
 const STRIPE_REQUEST_TIMEOUT = 15000;
+const STRIPE_LOADING_PROMISE_KEY = '__stripeJsLoadingPromise';
 
 // Store the loading promise to avoid multiple loading attempts
 let stripeLoadingPromise = null;
@@ -72,6 +73,11 @@ const loadStripeJs = () => {
     return stripeLoadingPromise;
   }
 
+  if (window[STRIPE_LOADING_PROMISE_KEY]) {
+    stripeLoadingPromise = window[STRIPE_LOADING_PROMISE_KEY];
+    return stripeLoadingPromise;
+  }
+
   // If Stripe is already defined, resolve immediately
   if (typeof Stripe !== 'undefined') {
     return Promise.resolve();
@@ -84,6 +90,7 @@ const loadStripeJs = () => {
     script.src = 'https://js.stripe.com/v3/';
     const timeoutId = window.setTimeout(() => {
       stripeLoadingPromise = null;
+      window[STRIPE_LOADING_PROMISE_KEY] = null;
       script.remove();
       reject(new Error('Stripe.js did not load in time.'));
     }, STRIPE_REQUEST_TIMEOUT);
@@ -96,10 +103,12 @@ const loadStripeJs = () => {
       // Failed to load Stripe.js
       window.clearTimeout(timeoutId);
       stripeLoadingPromise = null; // Reset so we can try again next time
+      window[STRIPE_LOADING_PROMISE_KEY] = null;
       reject(new Error('Failed to load Stripe.js'));
     };
     document.head.appendChild(script);
   });
+  window[STRIPE_LOADING_PROMISE_KEY] = stripeLoadingPromise;
 
   return stripeLoadingPromise;
 };
