@@ -274,15 +274,10 @@ function isVirtualCart() {
 }
 
 function shouldCollectShipping() {
-  if (isVirtualCart()) {
-    return false;
-  }
-
-  const shippingAddress = getCheckoutShippingAddress();
-  return !(
-    isCompleteCommerceAddress(shippingAddress)
-    && getSelectedShippingMethod(shippingAddress)
-  );
+  // Amazon Pay's JS-only onInitCheckout uses PayAndShip and requires a
+  // merchant callback with shipping rates. Skipping wallet shipping after
+  // Magento already has an address leaves that callback empty (no originUrl).
+  return !isVirtualCart();
 }
 
 function isCompleteBillingAddress() {
@@ -902,11 +897,14 @@ async function synchronizeWalletDetails(event, extraWallets = {}) {
     checkoutData = { ...checkoutData, email: billingDetails.email };
   }
 
+  const magentoHasShipping = isCompleteCommerceAddress(
+    getCheckoutShippingAddress(),
+  );
   const shippingWallet = walletShippingRequired
     ? firstCompleteWallet(
       extraWallets.shipping,
       toWalletAddress(event.shippingAddress),
-      toWalletAddress(billingDetails),
+      magentoHasShipping ? null : toWalletAddress(billingDetails),
     )
     : null;
   const billingWallet = firstCompleteWallet(
@@ -1205,13 +1203,9 @@ function registerExpressCheckoutHandlers() {
     modalOpen = true;
     walletReauthorizationRequired = false;
     setCheckoutBlocked(true);
-    // Amazon Pay requires its JS-only initialization callback immediately.
-    // The default shipping amount is already included when Elements is created.
-    if (walletShippingRequired && currentShippingRates.length > 0) {
-      event.resolve({ shippingRates: currentShippingRates });
-    } else {
-      event.resolve();
-    }
+    // Amazon Pay's JS-only onInitCheckout must receive this payload immediately.
+    // Omitting shippingRates (or passing none) leaves originUrl unset.
+    event.resolve({ shippingRates: currentShippingRates });
   });
   expressCheckoutElement.on('confirm', handleConfirm);
   expressCheckoutElement.on(

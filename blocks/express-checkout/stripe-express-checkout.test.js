@@ -543,8 +543,15 @@ describe('stripe-express-checkout EDS block', () => {
       expect.objectContaining({
         billingAddressRequired: false,
         emailRequired: false,
-        phoneNumberRequired: false,
-        shippingAddressRequired: false,
+        phoneNumberRequired: true,
+        shippingAddressRequired: true,
+        shippingRates: [
+          {
+            id: 'flatrate:flatrate',
+            displayName: 'Flat Rate - Fixed',
+            amount: 500,
+          },
+        ],
       }),
     );
     expect(block.expressCheckoutElement.mount).toHaveBeenCalledWith(
@@ -862,7 +869,9 @@ describe('stripe-express-checkout EDS block', () => {
     const block = loadStripeExpressCheckoutBlock();
     await renderAndMount(block);
 
-    await getHandler(block, 'confirm')(createConfirmEvent());
+    await getHandler(block, 'confirm')(
+      createConfirmEvent({ shippingAddress: null, shippingRate: null }),
+    );
 
     expect(block.mocks.checkoutApi.setShippingAddress).not.toHaveBeenCalled();
     expect(block.mocks.checkoutApi.setShippingMethods).not.toHaveBeenCalled();
@@ -992,7 +1001,15 @@ describe('stripe-express-checkout EDS block', () => {
       'stripe-express-checkout-blocked',
     );
     expect(block.checkoutRoot.attributes['aria-busy']).toBe('true');
-    expect(clickEvent.resolve).toHaveBeenCalledWith();
+    expect(clickEvent.resolve).toHaveBeenCalledWith({
+      shippingRates: [
+        {
+          id: 'flatrate:flatrate',
+          displayName: 'Flat Rate - Fixed',
+          amount: 500,
+        },
+      ],
+    });
 
     getHandler(block, 'cancel')();
     expect(block.checkoutRoot.className).not.toContain(
@@ -1036,7 +1053,7 @@ describe('stripe-express-checkout EDS block', () => {
     expect(block.elements.update).not.toHaveBeenCalled();
   });
 
-  test('remounts without shipping collection after the cart gains address and method', async () => {
+  test('keeps wallet shipping collection after Magento already has address and method', async () => {
     const block = loadStripeExpressCheckoutBlock();
     await renderAndMount(block, { checkout: incompleteCheckoutPayload() });
     expect(block.elements.create).toHaveBeenCalledWith(
@@ -1050,7 +1067,16 @@ describe('stripe-express-checkout EDS block', () => {
     expect(block.expressCheckoutElement.destroy).toHaveBeenCalled();
     expect(block.elements.create).toHaveBeenLastCalledWith(
       'expressCheckout',
-      expect.objectContaining({ shippingAddressRequired: false }),
+      expect.objectContaining({
+        shippingAddressRequired: true,
+        shippingRates: [
+          {
+            id: 'flatrate:flatrate',
+            displayName: 'Flat Rate - Fixed',
+            amount: 500,
+          },
+        ],
+      }),
     );
   });
 });

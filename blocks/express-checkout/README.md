@@ -146,15 +146,15 @@ PaymentIntent requests from authenticated storefronts forward the
 
 ## Shipping behavior
 
-- If the cart already has a complete shipping address and selected shipping
-  method, the Element is mounted with `shippingAddressRequired: false`.
-- If either is missing, the Element collects shipping information.
-- The default shipping rate is included in the amount when Elements is created,
-  and the wallet `click` event is resolved immediately so it stays within
-  Stripe's one-second callback requirement.
-- When checkout already has shipping, the click resolver receives no empty
-  `shippingRates` array. Shipping details are omitted entirely so Amazon Pay
-  stays in its non-shipping callback path.
+- Physical carts always mount with `shippingAddressRequired: true`. Amazon Pay's
+  JS-only `onInitCheckout` uses PayAndShip and fails immediately
+  (`originUrl is not present`, `ResponseNotReceivedError`) if the wallet skips
+  shipping because Magento already has an address.
+- Virtual carts do not collect shipping.
+- Magento rates are passed as the wallet's default `shippingRates`. The default
+  rate is included in the amount when Elements is created.
+- The wallet `click` event always resolves immediately with `shippingRates` so
+  it stays within Stripe's one-second Amazon Pay callback requirement.
 - A complete `shippingaddresschange` address is first persisted with
   `setShippingAddress()`. The block then refreshes the cart and returns the
   authoritative Commerce rates to the wallet. The first returned rate is also
@@ -169,9 +169,9 @@ PaymentIntent requests from authenticated storefronts forward the
   Incomplete Amazon billing falls back to shipping (`sameAsShipping`) rather
   than failing confirm. If `confirm` is still short, the Confirmation Token
   address is used after `elements.submit()`.
-- When checkout already has a complete shipping address and method, Express
-  Checkout does not request shipping and never replaces that address with the
-  wallet's billing details.
+- If the wallet supplies a complete shipping address, it is persisted even when
+  Magento already had one. Incomplete Amazon billing still falls back to
+  shipping (`sameAsShipping`).
 - `shippingratechange` immediately calls `setShippingMethods()` when Commerce
   has a complete address or the complete wallet address was just persisted.
   Otherwise, the selection is retained and persisted immediately after the
