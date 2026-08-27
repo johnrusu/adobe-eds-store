@@ -5,10 +5,12 @@
   "description": "Starter project for Adobe Commerce on Edge Delivery Services",
   "scripts": {
     "format": "prettier --write \"**/*.json\"",
+    "format:check": "prettier --check \"**/*.json\"",
     "lint:js": "eslint .",
     "lint:css": "stylelint \"blocks/**/*.css\" \"styles/*.css\"",
     "lint": "npm run lint:js && npm run lint:css",
     "lint:fix": "npm run lint:js -- --fix && npm run lint:css -- --fix",
+    "build": "npm run install:dropins && npm run build:json",
     "proxy:graphql": "node scripts/dev-graphql-proxy.mjs",
     "start:aem": "node --require ./scripts/wsl-port-check-preload.cjs ./node_modules/@adobe/aem-cli/index.js up --no-open --forward-browser-logs --html-folder drafts --html-mount /",
     "start": "npm-run-all -p proxy:graphql start:aem",
