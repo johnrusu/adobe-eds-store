@@ -152,7 +152,10 @@ PaymentIntent requests from authenticated storefronts forward the
   shipping because Magento already has an address.
 - Virtual carts do not collect shipping.
 - Magento rates are passed as the wallet's default `shippingRates`. The default
-  rate is included in the amount when Elements is created.
+  rate is included in the amount when Elements is created, including when
+  Magento already selected a method but the cart drop-in total is still the
+  item subtotal. Wallets that pre-authorize on open (Klarna, PayPal) need that
+  amount before the sheet starts.
 - The wallet `click` event always resolves immediately with `shippingRates` so
   it stays within Stripe's one-second Amazon Pay callback requirement.
 - A complete `shippingaddresschange` address is first persisted with

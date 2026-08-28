@@ -373,11 +373,51 @@ function getSelectedShippingAmountCents() {
     : 0;
 }
 
+function getCartPriceCents(price) {
+  const value = Number(price?.value);
+  if (!Number.isFinite(value) || !price?.currency) {
+    return null;
+  }
+  return toStripeMinorUnits(value, price.currency);
+}
+
+function getIncludedShippingCents(money = getCartMoney()) {
+  const cartShippingCents = getCartPriceCents(cartData?.shipping);
+  if (cartShippingCents > 0) {
+    return cartShippingCents;
+  }
+
+  const selectedCents = getSelectedShippingAmountCents();
+  const subtotalCents = getCartPriceCents(
+    cartData?.subtotal?.includingTax || cartData?.subtotal?.excludingTax,
+  );
+
+  // Magento can show a selected method while cart.total is still the item
+  // subtotal. Klarna pre-authorizes on open, so only subtract shipping when
+  // the cart total already includes it.
+  if (selectedCents > 0 && subtotalCents != null) {
+    return money.amount - subtotalCents >= selectedCents - 1 ? selectedCents : 0;
+  }
+
+  return selectedCents;
+}
+
 function getAmountWithShippingRate(shippingRate) {
   const money = getCartMoney();
   const rateAmount = Number(shippingRate?.amount);
   const shippingCents = Number.isFinite(rateAmount) ? rateAmount : 0;
-  return money.amount - getSelectedShippingAmountCents() + shippingCents;
+  return money.amount - getIncludedShippingCents(money) + shippingCents;
+}
+
+function getWalletElementsAmount() {
+  const money = getCartMoney();
+  if (shouldCollectShipping() && currentShippingRates[0]) {
+    return {
+      amount: getAmountWithShippingRate(currentShippingRates[0]),
+      currency: money.currency,
+    };
+  }
+  return money;
 }
 
 async function previewWalletAmount(shippingRate) {
@@ -1280,14 +1320,8 @@ async function mountExpressCheckout() {
 
     const expressCheckoutOptions = getExpressCheckoutOptions();
     const elementsOptions = getElementsOptions();
-    if (
-      expressCheckoutOptions.shippingAddressRequired
-      && currentShippingRates[0]
-    ) {
-      elementsOptions.amount = getAmountWithShippingRate(
-        currentShippingRates[0],
-      );
-    }
+    const walletAmount = getWalletElementsAmount();
+    elementsOptions.amount = walletAmount.amount;
     currentAmount = elementsOptions.amount;
     currentCurrency = elementsOptions.currency;
     elements = stripe.elements(elementsOptions);
@@ -1338,7 +1372,7 @@ async function synchronizeMountedElement() {
     return;
   }
 
-  const money = getCartMoney();
+  const money = getWalletElementsAmount();
   if (money.currency !== currentCurrency) {
     destroyExpressCheckout();
     await mountExpressCheckout();

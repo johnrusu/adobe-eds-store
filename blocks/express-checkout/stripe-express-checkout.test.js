@@ -1024,6 +1024,51 @@ describe('stripe-express-checkout EDS block', () => {
     );
   });
 
+  test('includes selected shipping when the cart total is still the item subtotal', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    const euroShipping = {
+      ...shippingMethod(),
+      amount: { value: 5, currency: 'EUR' },
+    };
+    await renderAndMount(block, {
+      cart: cartPayload({
+        total: { includingTax: { value: 39.01, currency: 'EUR' } },
+        subtotal: { includingTax: { value: 39.01, currency: 'EUR' } },
+      }),
+      checkout: checkoutPayload({
+        shippingAddress: {
+          ...commerceAddress(),
+          selectedShippingMethod: euroShipping,
+          availableShippingMethods: [euroShipping],
+        },
+      }),
+    });
+    const clickEvent = { resolve: jest.fn() };
+
+    getHandler(block, 'click')(clickEvent);
+
+    expect(block.stripeInstance.elements).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: 4401, currency: 'eur' }),
+    );
+    expect(clickEvent.resolve).toHaveBeenCalledWith({
+      shippingRates: [
+        {
+          id: 'flatrate:flatrate',
+          displayName: 'Flat Rate - Fixed',
+          amount: 500,
+        },
+      ],
+    });
+    expect(block.elements.update).not.toHaveBeenCalled();
+
+    await block.events.emit('cart/updated', cartPayload({
+      total: { includingTax: { value: 39.01, currency: 'EUR' } },
+      subtotal: { includingTax: { value: 39.01, currency: 'EUR' } },
+    }));
+
+    expect(block.elements.update).not.toHaveBeenCalledWith({ amount: 3901 });
+  });
+
   test('resolves wallet click immediately with default shipping in the amount', async () => {
     const block = loadStripeExpressCheckoutBlock();
     const checkout = checkoutPayload({
