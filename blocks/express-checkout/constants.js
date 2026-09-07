@@ -102,6 +102,21 @@ export const EVENTS = Object.freeze({
 /** Customer-facing copy and alert presentation. */
 export const STATUS = Object.freeze({ INFO: 'info', SUCCESS: 'success', ERROR: 'error' });
 
+/** Order-summary labels and Commerce tax-display values. */
+export const ORDER_SUMMARY = Object.freeze({
+  SUBTOTAL: 'Subtotal',
+  SHIPPING: 'Shipping & Handling',
+  TAX: 'Tax',
+  GRAND_TOTAL: 'Grand Total',
+});
+
+export const TAX_DISPLAY = Object.freeze({
+  EXCLUDING: 'EXCLUDING_TAX',
+  INCLUDING: 'INCLUDING_TAX',
+  BOTH: 'INCLUDING_EXCLUDING_TAX',
+  BOTH_CHECKOUT: 'INCLUDING_AND_EXCLUDING_TAX',
+});
+
 export const PAYMENT_STATUS = Object.freeze({
   info: {
     heading: 'Payment processing',
@@ -158,6 +173,7 @@ export const MESSAGES = Object.freeze({
 
 /** Developer diagnostics; never include payment credentials in these messages. */
 export const DIAGNOSTICS = Object.freeze({
+  SUMMARY_SETTINGS_FAILED: 'Unable to load Express Checkout tax-display settings.',
   SHIPPING_SELECTION_FAILED: 'Unable to persist the selected Magento shipping method.',
   SHIPPING_ESTIMATE_FAILED: 'Unable to estimate wallet shipping methods.',
   SHIPPING_METHOD_FAILED: 'Unable to persist the wallet shipping method.',

@@ -42,8 +42,11 @@ the exported `decorate`, `renderStripePaymentMethod`, `handleStripePayment`, and
 - `addresses.js` reads Commerce addresses and converts wallet, Commerce, and
   Confirmation Token address shapes. Its wallet conversion delegates to the
   Amazon compatibility normalizer so field precedence stays consistent.
-- `shipping.js` owns currency conversion, shipping rates, amount calculations,
+- `shipping.js` owns shipping rates, amount calculations,
   and synchronization through the Cart and Checkout Drop-ins.
+- `money.js` provides the shared Stripe minor-unit currency conversion.
+- `order-summary.js` maps Commerce totals and tax-display settings to ECE
+  `lineItems`, with a nonnegative Grand Total fallback.
 - `stripe-api.js` loads Stripe.js and calls the existing App Builder and Commerce
   payment APIs.
 - `checkout-view.js` controls inline alerts, wallet visibility, and the checkout
@@ -70,6 +73,8 @@ blocks/express-checkout/
   checkout-state.js
   checkout-view.js
   constants.js
+  money.js
+  order-summary.js
   shipping.js
   stripe-api.js
   stripe-express-checkout.css
@@ -236,6 +241,33 @@ PaymentIntent requests from authenticated storefronts forward the
   total on the next attempt.
 - Cart totals and shipping rates are converted using Stripe's zero-, two-, or
   three-decimal currency rules before they are passed to Elements.
+
+## Wallet order details
+
+ECE receives `lineItems` on creation, on every wallet click, and in shipping-change
+responses. Click builds these rows synchronously from the latest cart state; it
+does not fetch configuration or wait for a Commerce mutation. Line items are
+updated through event resolution, not through unsupported Element update options.
+
+The normal breakdown is Subtotal, Shipping & Handling (including the selected
+method name), and Tax. The subtotal and shipping follow Commerce's tax-display
+settings. For a setting that displays both prices, the summary uses the inclusive
+amount because each ECE row has only one amount. Tax already included in either
+row is removed from the separate Tax row.
+
+Amounts are compared in integer currency minor units. Missing data, incompatible
+currencies, negative components, or a breakdown that does not equal the Commerce
+grand total produce a single Grand Total row. Discounts are not sent as negative
+rows; a discounted cart uses the full breakdown only if its nonnegative amounts
+already reconcile. This is the storefront's policy, not a Stripe API restriction.
+
+For Commerce-selected methods with explicit inclusive and exclusive shipping
+amounts, the wallet uses the authoritative cart grand total instead of estimating
+shipping from total minus subtotal. The older amount estimate remains for partial
+shipping snapshots. During an unpersisted wallet shipping preview, the summary
+collapses to the displayed preview total until it matches Commerce again. The
+existing confirmation check still requires the authorized and Commerce totals
+to agree before payment proceeds.
 
 ## Amazon Pay testing
 

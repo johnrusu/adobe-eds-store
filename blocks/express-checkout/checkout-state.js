@@ -15,6 +15,8 @@ export const state = {
   initParams: null,
   /** @type {Object|null} Action URLs supplied by the Commerce payment method. */
   runtimeConfig: null,
+  /** @type {Object|null} Commerce tax-display settings used for wallet line items. */
+  summaryDisplaySettings: null,
 
   // Cart models are refreshed independently by their respective Drop-ins.
   /** @type {Object|null} Checkout Drop-in cart model. */

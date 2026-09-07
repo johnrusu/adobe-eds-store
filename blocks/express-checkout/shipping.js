@@ -1,8 +1,11 @@
 import * as checkoutApi from '@dropins/storefront-checkout/api.js';
 import * as cartApi from '@dropins/storefront-cart/api.js';
+import { toStripeMinorUnits } from './money.js';
 import {
-  STRIPE_ZERO_DECIMAL_CURRENCIES,
-  STRIPE_THREE_DECIMAL_CURRENCIES,
+  getWalletLineItems,
+  readAmount,
+} from './order-summary.js';
+import {
   MESSAGES,
   DIAGNOSTICS,
 } from './constants.js';
@@ -21,32 +24,6 @@ import {
 } from './addresses.js';
 import { wallets } from './wallets.js';
 import { getCustomerTokenFromCookie } from './stripe-api.js';
-
-/**
- * Resolve the Stripe minor-unit precision for a currency.
- * @param {string} currency ISO currency code.
- * @returns {number}
- */
-function getStripeFractionDigits(currency) {
-  const normalizedCurrency = String(currency || '').toUpperCase();
-  if (STRIPE_ZERO_DECIMAL_CURRENCIES.has(normalizedCurrency)) return 0;
-  if (STRIPE_THREE_DECIMAL_CURRENCIES.has(normalizedCurrency)) return 3;
-  return 2;
-}
-
-/**
- * Convert a monetary value to the integer amount expected by Stripe.
- * @param {number|string} value Monetary value in major currency units.
- * @param {string} currency ISO currency code.
- * @returns {number}
- */
-function toStripeMinorUnits(value, currency) {
-  const numericValue = Number(value);
-  if (!Number.isFinite(numericValue)) {
-    throw new Error(MESSAGES.AMOUNT_UNAVAILABLE);
-  }
-  return Math.round(numericValue * 10 ** getStripeFractionDigits(currency));
-}
 
 /**
  * Resolve the authoritative amount and currency from the cart fallbacks.
@@ -228,11 +205,26 @@ function getSelectedStripeShippingRate() {
  * @returns {boolean}
  */
 function shippingSelectionMatchesCart() {
+  // Checkout's selected method is server-backed. Its explicit tax amounts make
+  // subtracting grand total and subtotal unnecessary (and unsafe with fees).
+  if (hasCommerceShippingTotals()) return true;
   const selectedCents = getSelectedShippingAmountCents();
   if (selectedCents <= 0) {
     return true;
   }
   return Math.abs(getIncludedShippingCents() - selectedCents) <= 1;
+}
+
+/**
+ * Identify a selected Commerce method with explicit tax amounts. For these
+ * snapshots, preserve the server grand total rather than reconstructing it.
+ * @returns {boolean}
+ */
+function hasCommerceShippingTotals() {
+  const method = getSelectedShippingMethod();
+  const { currency } = getCartMoney();
+  return readAmount(method?.amountExclTax, currency) !== null
+    && readAmount(method?.amountInclTax, currency) !== null;
 }
 
 /**
@@ -270,6 +262,7 @@ async function ensureSelectedShippingOnCart() {
  */
 function getWalletElementsAmount() {
   const money = getCartMoney();
+  if (hasCommerceShippingTotals()) return money;
   const selectedRate = getSelectedStripeShippingRate();
   if (!isVirtualCart() && selectedRate) {
     return {
@@ -303,15 +296,15 @@ async function previewWalletAmount(shippingRate) {
  * @returns {Promise<void>}
  */
 async function updateMountedElementsAmount(amount) {
-  await Promise.all(
-    [...wallets.map((wallet) => wallet.elements), state.elements]
-      .filter(Boolean)
-      .filter((instance, index, list) => list.indexOf(instance) === index)
-      .map((instance) => instance.update({
-        amount,
-      })),
-  );
+  // Update before yielding so an immediately resolved click sees the same total.
+  const updates = [...wallets.map((wallet) => wallet.elements), state.elements]
+    .filter(Boolean)
+    .filter((instance, index, list) => list.indexOf(instance) === index)
+    .map((instance) => instance.update({ amount }));
   state.currentAmount = amount;
+  await Promise.all(
+    updates,
+  );
 }
 
 /**
@@ -464,6 +457,7 @@ async function handleShippingAddressChange(event) {
     }
     event.resolve({
       shippingRates,
+      lineItems: getWalletLineItems(),
     });
   } catch (error) {
     console.warn(DIAGNOSTICS.SHIPPING_ESTIMATE_FAILED, error);
@@ -492,6 +486,7 @@ async function handleShippingRateChange(event) {
     }
     event.resolve({
       shippingRates: state.currentShippingRates,
+      lineItems: getWalletLineItems(),
     });
   } catch (error) {
     console.warn(DIAGNOSTICS.SHIPPING_METHOD_FAILED, error);

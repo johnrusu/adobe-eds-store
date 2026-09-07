@@ -265,6 +265,35 @@ function cartPayload(overrides = {}) {
   };
 }
 
+/** A taxed cart with separate item and shipping tax, matching the requested UI. */
+function summaryFixture() {
+  const price = (value) => ({ value, currency: 'USD' });
+  const method = {
+    ...shippingMethod(),
+    amountExclTax: price(5),
+    amountInclTax: price(5.23),
+  };
+  return {
+    cart: cartPayload({
+      total: { includingTax: price(15.83) },
+      subtotal: { excludingTax: price(10), includingTax: price(10.60) },
+      totalTax: price(0.83),
+      discount: price(0),
+      appliedDiscounts: [],
+    }),
+    checkout: checkoutPayload({
+      shippingAddress: {
+        ...commerceAddress(),
+        country: { code: 'US' },
+        region: { code: 'MI' },
+        selectedShippingMethod: method,
+        availableShippingMethods: [method],
+      },
+    }),
+    method,
+  };
+}
+
 function checkoutPayload(overrides = {}) {
   return {
     email: 'customer@example.com',
@@ -310,6 +339,7 @@ function loadStripeExpressCheckoutBlock({
   search = '',
   initParams = initParamsPayload(),
   separateWalletInstances = false,
+  displaySettings = { subtotal: 'EXCLUDING_TAX', shipping: 'EXCLUDING_TAX' },
 } = {}) {
   const handlers = new Map();
   const lastPayloads = new Map();
@@ -407,6 +437,7 @@ function loadStripeExpressCheckoutBlock({
     __mocks: {
       events,
       cartApi: {
+        getStoreConfig: jest.fn().mockResolvedValue({ shoppingCartDisplaySetting: displaySettings }),
         refreshCart: jest.fn().mockResolvedValue(null),
       },
       checkoutApi: {
@@ -496,6 +527,7 @@ function loadStripeExpressCheckoutBlock({
     amazonExpressCheckoutElement,
     stripeInstance,
     uiRender,
+    summary: loadModule(path.join(__dirname, 'order-summary.js')),
   };
 }
 
@@ -765,6 +797,7 @@ describe('stripe-express-checkout EDS block', () => {
     ]);
     expect(block.elements.update).toHaveBeenCalledWith({ amount: 4700 });
     expect(event.resolve).toHaveBeenCalledWith({
+      lineItems: [{ name: 'Grand Total', amount: 4700 }],
       shippingRates: [
         {
           id: 'flatrate:flatrate',
@@ -796,6 +829,7 @@ describe('stripe-express-checkout EDS block', () => {
       },
     });
     expect(event.resolve).toHaveBeenCalledWith({
+      lineItems: [{ name: 'Grand Total', amount: 4700 }],
       shippingRates: [
         {
           id: 'flatrate:flatrate',
@@ -1128,7 +1162,9 @@ describe('stripe-express-checkout EDS block', () => {
 
     expect(block.checkoutRoot.className).toContain('stripe-express-checkout-blocked');
     expect(block.checkoutRoot.attributes['aria-busy']).toBe('true');
-    expect(clickEvent.resolve).toHaveBeenCalledWith({});
+    expect(clickEvent.resolve).toHaveBeenCalledWith({
+      lineItems: [{ name: 'Grand Total', amount: block.stripeInstance.elements.mock.calls.at(-1)[0].amount }],
+    });
 
     getHandler(block, 'cancel')();
     expect(block.checkoutRoot.className).not.toContain('stripe-express-checkout-blocked');
@@ -1149,7 +1185,9 @@ describe('stripe-express-checkout EDS block', () => {
 
     await getHandler(block, 'click')(clickEvent);
 
-    expect(clickEvent.resolve).toHaveBeenCalledWith({});
+    expect(clickEvent.resolve).toHaveBeenCalledWith({
+      lineItems: [{ name: 'Grand Total', amount: block.stripeInstance.elements.mock.calls.at(-1)[0].amount }],
+    });
     expect(clickEvent.resolve.mock.calls[0][0].shippingAddressRequired).toBeUndefined();
   });
 
@@ -1179,7 +1217,9 @@ describe('stripe-express-checkout EDS block', () => {
     expect(block.stripeInstance.elements).toHaveBeenCalledWith(
       expect.objectContaining({ amount: 4401, currency: 'eur' }),
     );
-    expect(clickEvent.resolve).toHaveBeenCalledWith({});
+    expect(clickEvent.resolve).toHaveBeenCalledWith({
+      lineItems: [{ name: 'Grand Total', amount: block.stripeInstance.elements.mock.calls.at(-1)[0].amount }],
+    });
     expect(block.elements.update).not.toHaveBeenCalled();
 
     await block.events.emit(
@@ -1230,7 +1270,9 @@ describe('stripe-express-checkout EDS block', () => {
     };
     await getHandler(block, 'click')(clickEvent);
 
-    expect(clickEvent.resolve).toHaveBeenCalledWith({});
+    expect(clickEvent.resolve).toHaveBeenCalledWith({
+      lineItems: [{ name: 'Grand Total', amount: block.stripeInstance.elements.mock.calls.at(-1)[0].amount }],
+    });
   });
 
   test('opens the wallet sheet without waiting for Magento shipping persist', async () => {
@@ -1261,7 +1303,9 @@ describe('stripe-express-checkout EDS block', () => {
     };
     getHandler(block, 'click')(clickEvent);
 
-    expect(clickEvent.resolve).toHaveBeenCalledWith({});
+    expect(clickEvent.resolve).toHaveBeenCalledWith({
+      lineItems: [{ name: 'Grand Total', amount: block.stripeInstance.elements.mock.calls.at(-1)[0].amount }],
+    });
   });
 
   test('resolves Amazon Pay click immediately with Magento shipping rates', async () => {
@@ -1285,6 +1329,7 @@ describe('stripe-express-checkout EDS block', () => {
       expect.objectContaining({ amount: 4700 }),
     );
     expect(clickEvent.resolve).toHaveBeenCalledWith({
+      lineItems: [{ name: 'Grand Total', amount: 4700 }],
       shippingRates: [
         {
           id: 'flatrate:flatrate',
@@ -1414,7 +1459,7 @@ describe('stripe-express-checkout EDS block', () => {
     const confirm = createConfirmEvent({ shippingAddress: null, shippingRate: null });
     await getHandler(block, 'confirm')(confirm);
 
-    expect(click.resolve).toHaveBeenCalledWith({});
+    expect(click.resolve).toHaveBeenCalledWith({ lineItems: [{ name: 'Grand Total', amount: 4200 }] });
     expect(block.amazonElements.submit).not.toHaveBeenCalled();
     expect(block.stripeInstance.createConfirmationToken).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1498,6 +1543,218 @@ describe('stripe-express-checkout EDS block', () => {
         paymentMethods: { amazonPay: 'never' },
       }),
     );
+  });
+
+  test('shows the reconciled Michigan order summary on create and immediate Link click', async () => {
+    const block = loadStripeExpressCheckoutBlock({ separateWalletInstances: true });
+    const fixture = summaryFixture();
+    const lineItems = [
+      { name: 'Subtotal', amount: 1000 },
+      { name: 'Shipping & Handling (Flat Rate - Fixed)', amount: 500 },
+      { name: 'Tax', amount: 83 },
+    ];
+    await renderAndMount(block, fixture);
+    expect(block.stripeInstance.elements).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: 1583 }),
+    );
+    expect(block.elements.create).toHaveBeenCalledWith(
+      'expressCheckout',
+      expect.objectContaining({ shippingAddressRequired: false, lineItems }),
+    );
+    expect(block.amazonElements.create).toHaveBeenCalledWith(
+      'expressCheckout',
+      expect.objectContaining({ shippingAddressRequired: true, lineItems }),
+    );
+    block.mocks.cartApi.getStoreConfig.mockClear();
+    const event = { resolve: jest.fn() };
+    getHandler(block, 'click')(event);
+    expect(event.resolve).toHaveBeenCalledWith({ lineItems });
+    expect(block.mocks.cartApi.getStoreConfig).not.toHaveBeenCalled();
+    expect(block.mocks.checkoutApi.setShippingMethods).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['EXCLUDING_TAX', 'EXCLUDING_TAX', [1000, 500, 83]],
+    ['INCLUDING_TAX', 'EXCLUDING_TAX', [1060, 500, 23]],
+    ['EXCLUDING_TAX', 'INCLUDING_TAX', [1000, 523, 60]],
+    ['INCLUDING_TAX', 'INCLUDING_TAX', [1060, 523]],
+    ['INCLUDING_EXCLUDING_TAX', 'INCLUDING_AND_EXCLUDING_TAX', [1060, 523]],
+  ])('avoids duplicate tax with subtotal %s and shipping %s', (subtotal, shipping, amounts) => {
+    const block = loadStripeExpressCheckoutBlock();
+    const { cart, method } = summaryFixture();
+    const rows = block.summary.buildOrderSummary(cart, method, { subtotal, shipping });
+    expect(rows.map((row) => row.amount)).toEqual(amounts);
+    expect(rows.reduce((sum, row) => sum + row.amount, 0)).toBe(1583);
+    expect(rows[0].name).toBe('Subtotal');
+  });
+
+  test.each([
+    ['discount', (cart) => { cart.total.includingTax.value = 13.83; cart.discount.value = 2; }],
+    ['rounding mismatch', (cart) => { cart.total.includingTax.value = 15.84; }],
+    ['unknown fee', (cart) => { cart.total.includingTax.value = 18.83; }],
+    ['missing taxes', (cart) => { delete cart.totalTax; }],
+    ['missing subtotal', (cart) => { delete cart.subtotal; }],
+    ['negative subtotal', (cart) => { cart.subtotal.excludingTax.value = -10; }],
+    ['mixed currency', (cart) => { cart.subtotal.excludingTax.currency = 'EUR'; }],
+    ['null money', (cart) => { cart.subtotal.excludingTax.value = null; }],
+  ])('uses the exact Grand Total fallback for %s', (_label, changeCart) => {
+    const block = loadStripeExpressCheckoutBlock();
+    const { cart, method } = summaryFixture();
+    changeCart(cart);
+    const rows = block.summary.buildOrderSummary(cart, method, {
+      subtotal: 'EXCLUDING_TAX', shipping: 'EXCLUDING_TAX',
+    });
+    expect(rows).toEqual([
+      { name: 'Grand Total', amount: Math.round(cart.total.includingTax.value * 100) },
+    ]);
+    expect(rows.every((row) => row.amount >= 0)).toBe(true);
+  });
+
+  test('uses item row totals and applied taxes when cart aggregates are absent', () => {
+    const block = loadStripeExpressCheckoutBlock();
+    const { cart, method } = summaryFixture();
+    delete cart.subtotal;
+    delete cart.totalTax;
+    cart.items = [{
+      quantity: 2,
+      rowTotal: { value: 10, currency: 'USD' },
+      rowTotalIncludingTax: { value: 10.60, currency: 'USD' },
+    }];
+    cart.appliedTaxes = [{ amount: { value: 0.60, currency: 'USD' } },
+      { amount: { value: 0.23, currency: 'USD' } }];
+    expect(block.summary.buildOrderSummary(cart, method, {
+      subtotal: 'INCLUDING_TAX', shipping: 'EXCLUDING_TAX',
+    }).map((row) => row.amount)).toEqual([1060, 500, 23]);
+  });
+
+  test.each([
+    ['JPY', 1000, 60, 1060],
+    ['KWD', 1.111, 0.056, 1167],
+  ])('reconciles virtual-cart line items in %s minor units', (currency, subtotal, tax, total) => {
+    const block = loadStripeExpressCheckoutBlock();
+    const { cart } = summaryFixture();
+    const factor = currency === 'JPY' ? 1 : 1000;
+    cart.total.includingTax = { value: total / factor, currency };
+    cart.subtotal.excludingTax = { value: subtotal, currency };
+    cart.totalTax = { value: tax, currency };
+    expect(block.summary.buildOrderSummary(cart, null, { subtotal: 'EXCLUDING_TAX' }, true))
+      .toEqual([{ name: 'Subtotal', amount: Math.round(subtotal * factor) },
+        { name: 'Tax', amount: Math.round(tax * factor) }]);
+  });
+
+  test('uses fresh line items on click when shipping changes but the total does not', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    const fixture = summaryFixture();
+    await renderAndMount(block, fixture);
+    const renamedMethod = { ...fixture.method, title: 'Express' };
+    await block.events.emit('checkout/updated', checkoutPayload({
+      shippingAddress: {
+        ...fixture.checkout.shippingAddress,
+        selectedShippingMethod: renamedMethod,
+        availableShippingMethods: [renamedMethod],
+      },
+    }));
+    const event = { resolve: jest.fn() };
+    getHandler(block, 'click')(event);
+    expect(event.resolve.mock.calls[0][0].lineItems[1]).toEqual({
+      name: 'Shipping & Handling (Flat Rate - Express)', amount: 500,
+    });
+  });
+
+  test('preserves discounted cart totals without inventing negative line items', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    const fixture = summaryFixture();
+    fixture.cart.discount.value = 2;
+    fixture.cart.total.includingTax.value = 13.83;
+    await renderAndMount(block, fixture);
+    const event = { resolve: jest.fn() };
+    getHandler(block, 'click')(event);
+    expect(block.stripeInstance.elements).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: 1383 }),
+    );
+    expect(event.resolve).toHaveBeenCalledWith({
+      lineItems: [{ name: 'Grand Total', amount: 1383 }],
+    });
+    expect(block.mocks.checkoutApi.setShippingMethods).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['an unrepresented fee', (cart) => { cart.total.includingTax.value = 18.83; }],
+    ['missing tax data', (cart) => { delete cart.totalTax; }],
+    ['missing subtotal data', (cart) => { delete cart.subtotal; }],
+  ])('does not change the authoritative wallet amount for %s', async (_label, changeCart) => {
+    const block = loadStripeExpressCheckoutBlock();
+    const fixture = summaryFixture();
+    changeCart(fixture.cart);
+    await renderAndMount(block, fixture);
+    const amount = Math.round(fixture.cart.total.includingTax.value * 100);
+    const event = { resolve: jest.fn() };
+    getHandler(block, 'click')(event);
+    expect(block.stripeInstance.elements).toHaveBeenCalledWith(expect.objectContaining({ amount }));
+    expect(event.resolve).toHaveBeenCalledWith({ lineItems: [{ name: 'Grand Total', amount }] });
+    expect(block.mocks.checkoutApi.setShippingMethods).not.toHaveBeenCalled();
+  });
+
+  test('uses the inclusive shipping display without changing the charged total', async () => {
+    const block = loadStripeExpressCheckoutBlock({
+      displaySettings: { subtotal: 'INCLUDING_TAX', shipping: 'INCLUDING_TAX' },
+    });
+    const fixture = summaryFixture();
+    fixture.method.amount = fixture.method.amountInclTax;
+    await renderAndMount(block, fixture);
+    const event = { resolve: jest.fn() };
+    getHandler(block, 'click')(event);
+    expect(event.resolve).toHaveBeenCalledWith({
+      lineItems: [
+        { name: 'Subtotal', amount: 1060 },
+        { name: 'Shipping & Handling (Flat Rate - Fixed)', amount: 523 },
+      ],
+    });
+    expect(block.stripeInstance.elements).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: 1583 }),
+    );
+  });
+
+  test('does not block wallet mounting when tax-display settings are unavailable', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    block.mocks.cartApi.getStoreConfig.mockRejectedValue(new Error('Unavailable'));
+    await renderAndMount(block, summaryFixture());
+    const event = { resolve: jest.fn() };
+    getHandler(block, 'click')(event);
+    expect(event.resolve).toHaveBeenCalledWith({
+      lineItems: [{ name: 'Grand Total', amount: 1583 }],
+    });
+  });
+
+  test('keeps shipping-event line items aligned with the wallet preview total', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    await renderAndMount(block, summaryFixture());
+    const expensiveMethod = {
+      ...tableRateShippingMethod(),
+      amountExclTax: { value: 15, currency: 'USD' },
+      amountInclTax: { value: 15.69, currency: 'USD' },
+    };
+    block.mocks.checkoutApi.estimateShippingMethods.mockResolvedValue([expensiveMethod]);
+    const event = {
+      address: { country: 'US', state: 'MI', postal_code: '48201' },
+      resolve: jest.fn(),
+      reject: jest.fn(),
+    };
+    await getHandler(block, 'shippingaddresschange', 'amazon')(event);
+    const displayedAmount = block.elements.update.mock.calls.at(-1)[0].amount;
+    expect(event.resolve.mock.calls[0][0].lineItems).toEqual([
+      { name: 'Grand Total', amount: displayedAmount },
+    ]);
+    expect(block.mocks.checkoutApi.setShippingAddress).not.toHaveBeenCalled();
+    const rateEvent = {
+      shippingRate: event.resolve.mock.calls[0][0].shippingRates[0],
+      resolve: jest.fn(),
+      reject: jest.fn(),
+    };
+    await getHandler(block, 'shippingratechange', 'amazon')(rateEvent);
+    expect(rateEvent.resolve.mock.calls[0][0].lineItems).toEqual([
+      { name: 'Grand Total', amount: displayedAmount },
+    ]);
   });
 
   test.each([

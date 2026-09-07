@@ -52,6 +52,10 @@ import {
 } from './stripe-api.js';
 import { wallets, primaryWallet } from './wallets.js';
 import {
+  getWalletLineItems,
+  loadOrderSummarySettings,
+} from './order-summary.js';
+import {
   setCheckoutBlocked,
   setPaymentStatus,
   clearPaymentStatus,
@@ -88,11 +92,9 @@ function getElementsOptions() {
  * @returns {Object}
  */
 function getClickResolvePayload(collectShipping) {
-  if (!collectShipping) {
-    return {};
-  }
   return {
-    shippingRates: state.currentShippingRates,
+    lineItems: getWalletLineItems(),
+    ...(collectShipping ? { shippingRates: state.currentShippingRates } : {}),
   };
 }
 
@@ -496,7 +498,10 @@ async function mountExpressCheckout() {
   try {
     await loadStripeJs();
     state.runtimeConfig = parseRuntimeConfig();
-    state.initParams = await fetchInitParams(state.runtimeConfig.getInitParamsUrl);
+    [state.initParams] = await Promise.all([
+      fetchInitParams(state.runtimeConfig.getInitParamsUrl),
+      loadOrderSummarySettings(),
+    ]);
     state.stripe = Stripe(state.initParams.publishableKey, state.initParams.options);
     if (state.initParams.appInfo) {
       state.stripe.registerAppInfo(state.initParams.appInfo);
@@ -516,7 +521,10 @@ async function mountExpressCheckout() {
       syncMagentoShippingRates();
       wallet.element = wallet.elements.create(
         STRIPE.ELEMENT_TYPE,
-        wallet.getOptions(getSharedExpressCheckoutFields(), state.currentShippingRates),
+        {
+          ...wallet.getOptions(getSharedExpressCheckoutFields(), state.currentShippingRates),
+          lineItems: getWalletLineItems(),
+        },
       );
       registerExpressCheckoutHandlers(wallet);
       wallet.element.mount(`#${wallet.containerId}`);
