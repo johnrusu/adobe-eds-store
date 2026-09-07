@@ -144,22 +144,17 @@ async function loadOrderSummarySettings() {
 }
 
 /**
- * Get rows for the current wallet amount. A temporary wallet shipping preview
- * cannot use the Magento breakdown until its amount matches the cart again.
- * @param {number} [amount] Current wallet total in minor units.
- * @returns {Array<{name: string, amount: number}>} Rows matching the displayed total.
+ * Get the current Magento breakdown or its authoritative Grand Total fallback.
+ * Wallet shipping estimates must never supply the fallback amount.
+ * @returns {Array<{name: string, amount: number}>} Rows matching Magento's total.
  */
-function getWalletLineItems(amount = state.currentAmount) {
-  const rows = buildOrderSummary(
+function getWalletLineItems() {
+  return buildOrderSummary(
     state.cartData,
     getSelectedShippingMethod(),
     state.summaryDisplaySettings,
     isVirtualCart(),
   );
-  const currency = state.cartData?.total?.includingTax?.currency;
-  if (currency?.toLowerCase() === state.currentCurrency
-    && rows.length && rows.reduce((sum, row) => sum + row.amount, 0) === amount) return rows;
-  return [{ name: ORDER_SUMMARY.GRAND_TOTAL, amount }];
 }
 
 export {

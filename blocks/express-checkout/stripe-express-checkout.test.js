@@ -836,7 +836,7 @@ describe('stripe-express-checkout EDS block', () => {
       },
     });
     expect(event.resolve).toHaveBeenCalledWith({
-      lineItems: [{ name: 'Grand Total', amount: 4700 }],
+      lineItems: [{ name: 'Grand Total', amount: 4200 }],
       shippingRates: [
         {
           id: 'flatrate:flatrate',
@@ -884,7 +884,7 @@ describe('stripe-express-checkout EDS block', () => {
     expect(event.reject).not.toHaveBeenCalled();
   });
 
-  test('previews a shipping rate without persisting it when the wallet address is still redacted', async () => {
+  test('retains Magento total when a redacted wallet address cannot persist a shipping rate', async () => {
     const block = loadStripeExpressCheckoutBlock();
     await renderAndMount(block, { checkout: incompleteCheckoutPayload() });
     await getHandler(
@@ -905,8 +905,10 @@ describe('stripe-express-checkout EDS block', () => {
     await getHandler(block, 'shippingratechange')(event);
 
     expect(block.mocks.checkoutApi.setShippingMethods).not.toHaveBeenCalled();
-    expect(block.elements.update).toHaveBeenCalledWith({ amount: 4700 });
-    expect(event.resolve).toHaveBeenCalled();
+    expect(block.elements.update).not.toHaveBeenCalled();
+    expect(event.resolve).toHaveBeenCalledWith(expect.objectContaining({
+      lineItems: [{ name: 'Grand Total', amount: 4200 }],
+    }));
   });
 
   test('confirms a guest cart with a Confirmation Token then places the order', async () => {
@@ -1242,7 +1244,7 @@ describe('stripe-express-checkout EDS block', () => {
     expect(clickEvent.resolve.mock.calls[0][0].shippingAddressRequired).toBeUndefined();
   });
 
-  test('includes selected shipping when the cart total is still the item subtotal', async () => {
+  test('preserves Magento total when shipping persistence has not changed the cart', async () => {
     const block = loadStripeExpressCheckoutBlock();
     const euroShipping = {
       ...shippingMethod(),
@@ -1266,7 +1268,7 @@ describe('stripe-express-checkout EDS block', () => {
     await getHandler(block, 'click')(clickEvent);
 
     expect(block.stripeInstance.elements).toHaveBeenCalledWith(
-      expect.objectContaining({ amount: 4401, currency: 'eur' }),
+      expect.objectContaining({ amount: 3901, currency: 'eur' }),
     );
     expect(clickEvent.resolve).toHaveBeenCalledWith({
       lineItems: [{ name: 'Grand Total', amount: block.stripeInstance.elements.mock.calls.at(-1)[0].amount }],
@@ -1377,10 +1379,10 @@ describe('stripe-express-checkout EDS block', () => {
     await getHandler(block, 'click', 'amazon')(clickEvent);
 
     expect(block.stripeInstance.elements).toHaveBeenCalledWith(
-      expect.objectContaining({ amount: 4700 }),
+      expect.objectContaining({ amount: 4200 }),
     );
     expect(clickEvent.resolve).toHaveBeenCalledWith({
-      lineItems: [{ name: 'Grand Total', amount: 4700 }],
+      lineItems: [{ name: 'Grand Total', amount: 4200 }],
       shippingRates: [
         {
           id: 'flatrate:flatrate',
@@ -1777,9 +1779,20 @@ describe('stripe-express-checkout EDS block', () => {
     });
   });
 
-  test('keeps shipping-event line items aligned with the wallet preview total', async () => {
-    const block = loadStripeExpressCheckoutBlock();
-    await renderAndMount(block, summaryFixture());
+  test.each([false, true])('retains Magento total across Amazon estimates (discount: %s)', async (discounted) => {
+    const block = loadStripeExpressCheckoutBlock({ separateWalletInstances: true });
+    const fixture = summaryFixture();
+    if (discounted) {
+      fixture.cart.total.includingTax.value = 13.83;
+      fixture.cart.discount.value = 2;
+    }
+    await renderAndMount(block, fixture);
+    const amount = discounted ? 1383 : 1583;
+    const lineItems = discounted ? [{ name: 'Grand Total', amount }] : [
+      { name: 'Subtotal', amount: 1000 },
+      { name: 'Shipping & Handling (Flat Rate - Fixed)', amount: 500 },
+      { name: 'Tax', amount: 83 },
+    ];
     const expensiveMethod = {
       ...tableRateShippingMethod(),
       amountExclTax: { value: 15, currency: 'USD' },
@@ -1792,10 +1805,10 @@ describe('stripe-express-checkout EDS block', () => {
       reject: jest.fn(),
     };
     await getHandler(block, 'shippingaddresschange', 'amazon')(event);
-    const displayedAmount = block.elements.update.mock.calls.at(-1)[0].amount;
-    expect(event.resolve.mock.calls[0][0].lineItems).toEqual([
-      { name: 'Grand Total', amount: displayedAmount },
-    ]);
+    expect(block.stripeInstance.elements).toHaveBeenCalledWith(expect.objectContaining({ amount }));
+    expect(block.elements.update).not.toHaveBeenCalled();
+    expect(block.amazonElements.update).not.toHaveBeenCalled();
+    expect(event.resolve.mock.calls[0][0].lineItems).toEqual(lineItems);
     expect(block.mocks.checkoutApi.setShippingAddress).not.toHaveBeenCalled();
     const rateEvent = {
       shippingRate: event.resolve.mock.calls[0][0].shippingRates[0],
@@ -1803,9 +1816,49 @@ describe('stripe-express-checkout EDS block', () => {
       reject: jest.fn(),
     };
     await getHandler(block, 'shippingratechange', 'amazon')(rateEvent);
-    expect(rateEvent.resolve.mock.calls[0][0].lineItems).toEqual([
-      { name: 'Grand Total', amount: displayedAmount },
-    ]);
+    expect(rateEvent.resolve.mock.calls[0][0].lineItems).toEqual(lineItems);
+    expect(block.mocks.checkoutApi.setShippingMethods).not.toHaveBeenCalled();
+    expect(block.elements.update).not.toHaveBeenCalled();
+    expect(block.amazonElements.update).not.toHaveBeenCalled();
+  });
+
+  test('aligns both wallet amounts and the fallback on Amazon click after a cart change', async () => {
+    const block = loadStripeExpressCheckoutBlock({ separateWalletInstances: true });
+    const fixture = summaryFixture();
+    await renderAndMount(block, fixture);
+    await getHandler(block, 'click', 'amazon')({ resolve: jest.fn() });
+    await block.events.emit('cart/updated', {
+      ...fixture.cart,
+      total: { includingTax: { value: 13.83, currency: 'USD' } },
+      discount: { value: 2, currency: 'USD' },
+    });
+    expect(block.amazonElements.update).not.toHaveBeenCalled();
+
+    const event = { resolve: jest.fn() };
+    await getHandler(block, 'click', 'amazon')(event);
+
+    expect(block.elements.update).toHaveBeenLastCalledWith({ amount: 1383 });
+    expect(block.amazonElements.update).toHaveBeenLastCalledWith({ amount: 1383 });
+    expect(event.resolve).toHaveBeenCalledWith(expect.objectContaining({
+      lineItems: [{ name: 'Grand Total', amount: 1383 }],
+    }));
+  });
+
+  test.each(['primary', 'amazon'])('rejects %s click if the cart currency changed while the wallet was open', async (wallet) => {
+    const block = loadStripeExpressCheckoutBlock({ separateWalletInstances: true });
+    await renderAndMount(block, summaryFixture());
+    await getHandler(block, 'click', wallet)({ resolve: jest.fn() });
+    await block.events.emit('cart/updated', cartPayload({
+      total: { includingTax: { value: 15.83, currency: 'EUR' } },
+    }));
+    const event = { resolve: jest.fn(), reject: jest.fn() };
+
+    await getHandler(block, 'click', wallet)(event);
+
+    expect(event.resolve).not.toHaveBeenCalled();
+    expect(event.reject).toHaveBeenCalledTimes(1);
+    expect(block.elements.update).not.toHaveBeenCalled();
+    expect(block.amazonElements.update).not.toHaveBeenCalled();
   });
 
   test.each([

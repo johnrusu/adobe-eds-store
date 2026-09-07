@@ -240,7 +240,7 @@ PaymentIntent requests from authenticated storefronts forward the
   address is used after `elements.submit()`.
 - `shippingratechange` persists a method only when the wallet just wrote the
   Magento address. If Magento already had a complete address and method, the
-  wallet rate is previewed and left on the sheet.
+  wallet rate remains on the sheet without changing Magento's grand total.
 - After shipping changes, `refreshCart()` supplies the authoritative amount.
   If the amount changes only after wallet authorization, the current attempt is
   failed and Elements is updated so the shopper can authorize the corrected
@@ -267,13 +267,11 @@ grand total produce a single Grand Total row. Discounts are not sent as negative
 rows; a discounted cart uses the full breakdown only if its nonnegative amounts
 already reconcile. This is the storefront's policy, not a Stripe API restriction.
 
-For Commerce-selected methods with explicit inclusive and exclusive shipping
-amounts, the wallet uses the authoritative cart grand total instead of estimating
-shipping from total minus subtotal. The older amount estimate remains for partial
-shipping snapshots. During an unpersisted wallet shipping preview, the summary
-collapses to the displayed preview total until it matches Commerce again. The
-existing confirmation check still requires the authorized and Commerce totals
-to agree before payment proceeds.
+The wallet amount and Grand Total fallback use Magento's grand total, including
+when shipping data is partial. An estimated wallet rate cannot replace this total.
+Persisted shipping changes refresh Commerce totals before resolving the summary.
+The existing confirmation check still requires the authorized and Commerce totals
+to agree before payment proceeds; a changed total requires another authorization.
 
 ## Amazon Pay testing
 

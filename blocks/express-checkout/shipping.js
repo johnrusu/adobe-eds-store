@@ -173,34 +173,6 @@ function getIncludedShippingCents(money = getCartMoney()) {
 }
 
 /**
- * Replace the included shipping amount with the requested wallet rate.
- * @param {Object} shippingRate Stripe shipping rate with an integer amount.
- * @returns {number}
- */
-function getAmountWithShippingRate(shippingRate) {
-  const money = getCartMoney();
-  const rateAmount = Number(shippingRate?.amount);
-  const shippingCents = Number.isFinite(rateAmount) ? rateAmount : 0;
-  return money.amount - getIncludedShippingCents(money) + shippingCents;
-}
-
-/**
- * Resolve the selected Commerce rate before using the first available rate.
- * @returns {Object|null}
- */
-function getSelectedStripeShippingRate() {
-  const method = getSelectedShippingMethod();
-  if (method) {
-    const selectedId = getShippingMethodRateId(method);
-    return (
-      state.currentShippingRates.find((rate) => rate.id === selectedId)
-      || toStripeShippingRate(method)
-    );
-  }
-  return state.currentShippingRates[0] || null;
-}
-
-/**
  * Compare selected and included shipping using the minor-unit tolerance.
  * @returns {boolean}
  */
@@ -257,37 +229,26 @@ async function ensureSelectedShippingOnCart() {
 }
 
 /**
- * Compute the wallet amount using the selected Commerce shipping option.
+ * Use Magento's total, including its calculated shipping, taxes, and discounts.
  * @returns {{amount: number, currency: string}}
  */
 function getWalletElementsAmount() {
-  const money = getCartMoney();
-  if (hasCommerceShippingTotals()) return money;
-  const selectedRate = getSelectedStripeShippingRate();
-  if (!isVirtualCart() && selectedRate) {
-    return {
-      amount: getAmountWithShippingRate(selectedRate),
-      currency: money.currency,
-    };
-  }
-  return money;
+  return getCartMoney();
 }
 
 /**
- * Update the wallet total for a preview rate without persisting a Commerce method.
- * @param {Object} shippingRate Stripe shipping rate with an integer amount.
- * @returns {Promise<number|null>}
+ * Align the wallet with the latest cart snapshot before resolving shipping rows.
+ * Estimated rates remain selectable but cannot replace Magento's grand total.
+ * @returns {Promise<void>}
  */
-async function previewWalletAmount(shippingRate) {
-  if (!shippingRate) {
-    return state.currentAmount;
+async function syncWalletAmountFromCart() {
+  const money = getWalletElementsAmount();
+  if (money.currency !== state.currentCurrency) {
+    throw new Error(MESSAGES.CURRENCY_CHANGED);
   }
-  const previewAmount = getAmountWithShippingRate(shippingRate);
-  if (previewAmount === state.currentAmount) {
-    return previewAmount;
+  if (money.amount !== state.currentAmount) {
+    await updateMountedElementsAmount(money.amount);
   }
-  await updateMountedElementsAmount(previewAmount);
-  return previewAmount;
 }
 
 /**
@@ -451,10 +412,9 @@ async function handleShippingAddressChange(event) {
           getShippingMethodInput(state.pendingShippingMethod),
         ]);
         await updateElementsAmountFromCart();
-      } else {
-        await previewWalletAmount(shippingRates[0]);
       }
     }
+    await syncWalletAmountFromCart();
     event.resolve({
       shippingRates,
       lineItems: getWalletLineItems(),
@@ -466,7 +426,7 @@ async function handleShippingAddressChange(event) {
 }
 
 /**
- * Persist or preview a wallet delivery selection according to address ownership.
+ * Persist or retain a wallet delivery selection according to address ownership.
  * @param {Object} event Stripe Express Checkout event.
  * @returns {Promise<void>}
  */
@@ -481,9 +441,8 @@ async function handleShippingRateChange(event) {
     if (state.walletShippingAddressPersisted && !hasRequiredMagentoShipping()) {
       await checkoutApi.setShippingMethods([getShippingMethodInput(method)]);
       await updateElementsAmountFromCart();
-    } else {
-      await previewWalletAmount(event.shippingRate);
     }
+    await syncWalletAmountFromCart();
     event.resolve({
       shippingRates: state.currentShippingRates,
       lineItems: getWalletLineItems(),

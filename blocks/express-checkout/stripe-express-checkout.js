@@ -436,7 +436,10 @@ function registerExpressCheckoutHandlers(wallet) {
     state.walletReauthorizationRequired = false;
     setCheckoutBlocked(true);
     activateWallet(wallet);
-    const validationError = await getCheckoutValidationError(collectShipping);
+    const checkoutError = await getCheckoutValidationError(collectShipping);
+    const money = getWalletElementsAmount();
+    const validationError = checkoutError
+      || (money.currency !== state.currentCurrency ? MESSAGES.CURRENCY_CHANGED : null);
     if (validationError) {
       state.modalOpen = false;
       setCheckoutBlocked(false);
@@ -446,14 +449,8 @@ function registerExpressCheckoutHandlers(wallet) {
       await setPaymentStatus(validationError, STATUS.ERROR);
       return;
     }
-    if (!collectShipping) {
-      const money = getWalletElementsAmount();
-      if (
-        money.currency === state.currentCurrency
-        && money.amount !== state.currentAmount
-      ) {
-        updateMountedElementsAmount(money.amount);
-      }
+    if (money.amount !== state.currentAmount) {
+      updateMountedElementsAmount(money.amount);
     }
     // Stripe discards the sheet if resolve() waits more than ~1s.
     event.resolve(getClickResolvePayload(collectShipping));
