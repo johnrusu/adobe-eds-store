@@ -216,6 +216,12 @@ PaymentIntent requests from authenticated storefronts forward the
 - Confirm requires a complete Magento shipping address and selected method.
   If those are missing, the attempt fails and asks the shopper to finish
   shipping on the checkout page.
+- Magento-owned wallets (Link, Apple Pay, Google Pay, PayPal, Klarna) also
+  validate the Magento shipping and billing forms on click and confirm. A
+  missing required phone number rejects the wallet click, keeps Magento's
+  field error visible, and shows a clear Express Checkout message instead of
+  a generic payment failure. Amazon Pay skips that Magento form check because
+  it collects its own address.
 - Link confirm does not collect shipping in the wallet. The Magento shipping
   address is attached to `createConfirmationToken()`, and a complete Magento
   shipping address also satisfies billing when Commerce is using

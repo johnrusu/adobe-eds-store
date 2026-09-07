@@ -533,14 +533,19 @@ function loadStripeExpressCheckoutBlock({
   };
 }
 
-async function renderAndMount(block, { cart, checkout, handleValidation } = {}) {
+async function renderAndMount(block, {
+  cart,
+  checkout,
+  handleValidation,
+  handleShippingValidation,
+} = {}) {
   const ctx = {
     replaceHTML: jest.fn((content) => {
       block.checkoutRoot.appendChild(content);
     }),
   };
 
-  block.exports.renderStripePaymentMethod(ctx, { handleValidation });
+  block.exports.renderStripePaymentMethod(ctx, { handleValidation, handleShippingValidation });
   await flushPromises();
   await block.events.emit('cart/initialized', cart || cartPayload());
   await block.events.emit('checkout/initialized', checkout || checkoutPayload());
@@ -1114,6 +1119,50 @@ describe('stripe-express-checkout EDS block', () => {
     expect(event.paymentFailed).toHaveBeenCalledWith({ reason: 'fail' });
   });
 
+  test('rejects Magento-owned wallet click when the shipping form is invalid', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    const handleShippingValidation = jest.fn().mockReturnValue(false);
+    await renderAndMount(block, { handleShippingValidation });
+    const clickEvent = { resolve: jest.fn(), reject: jest.fn() };
+
+    await getHandler(block, 'click')(clickEvent);
+
+    expect(handleShippingValidation).toHaveBeenCalledTimes(1);
+    expect(clickEvent.reject).toHaveBeenCalledTimes(1);
+    expect(clickEvent.resolve).not.toHaveBeenCalled();
+    expect(block.checkoutRoot.className).not.toContain('stripe-express-checkout-blocked');
+    expect(block.document.querySelector('.stripe-express-checkout-status').children[0].textContent)
+      .toContain('Please fix the highlighted required fields');
+  });
+
+  test('still opens Amazon Pay when only Magento shipping validation fails', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    const handleShippingValidation = jest.fn().mockReturnValue(false);
+    await renderAndMount(block, { handleShippingValidation });
+    const clickEvent = { resolve: jest.fn(), reject: jest.fn() };
+
+    await getHandler(block, 'click', 'amazon')(clickEvent);
+
+    expect(handleShippingValidation).not.toHaveBeenCalled();
+    expect(clickEvent.reject).not.toHaveBeenCalled();
+    expect(clickEvent.resolve).toHaveBeenCalled();
+  });
+
+  test('does not confirm Magento-owned payment when the shipping form is invalid', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    const handleShippingValidation = jest.fn().mockReturnValue(false);
+    await renderAndMount(block, { handleShippingValidation });
+
+    const event = createConfirmEvent();
+    await getHandler(block, 'confirm')(event);
+
+    expect(handleShippingValidation).toHaveBeenCalledTimes(1);
+    expect(block.stripeInstance.createConfirmationToken).not.toHaveBeenCalled();
+    expect(event.paymentFailed).toHaveBeenCalledWith({ reason: 'fail' });
+    expect(block.document.querySelector('.stripe-express-checkout-status').children[0].textContent)
+      .toContain('Please fix the highlighted required fields');
+  });
+
   test('blocks Place Order until Express Checkout has confirmed the cart', async () => {
     const block = loadStripeExpressCheckoutBlock();
     await renderAndMount(block);
@@ -1303,7 +1352,7 @@ describe('stripe-express-checkout EDS block', () => {
       expressPaymentType: 'link',
       resolve: jest.fn(),
     };
-    getHandler(block, 'click')(clickEvent);
+    await getHandler(block, 'click')(clickEvent);
 
     expect(clickEvent.resolve).toHaveBeenCalledWith({
       lineItems: [{ name: 'Grand Total', amount: block.stripeInstance.elements.mock.calls.at(-1)[0].amount }],
@@ -1453,11 +1502,11 @@ describe('stripe-express-checkout EDS block', () => {
   test('switches back to Magento shipping after dismissing Amazon and opening Link', async () => {
     const block = loadStripeExpressCheckoutBlock({ separateWalletInstances: true });
     await renderAndMount(block);
-    getHandler(block, 'click', 'amazon')({ resolve: jest.fn() });
+    await getHandler(block, 'click', 'amazon')({ resolve: jest.fn() });
     getHandler(block, 'cancel', 'amazon')();
     await flushPromises();
     const click = { resolve: jest.fn() };
-    getHandler(block, 'click')(click);
+    await getHandler(block, 'click')(click);
     const confirm = createConfirmEvent({ shippingAddress: null, shippingRate: null });
     await getHandler(block, 'confirm')(confirm);
 
@@ -1569,7 +1618,7 @@ describe('stripe-express-checkout EDS block', () => {
     );
     block.mocks.cartApi.getStoreConfig.mockClear();
     const event = { resolve: jest.fn() };
-    getHandler(block, 'click')(event);
+    await getHandler(block, 'click')(event);
     expect(event.resolve).toHaveBeenCalledWith({ lineItems });
     expect(block.mocks.cartApi.getStoreConfig).not.toHaveBeenCalled();
     expect(block.mocks.checkoutApi.setShippingMethods).not.toHaveBeenCalled();
@@ -1657,7 +1706,7 @@ describe('stripe-express-checkout EDS block', () => {
       },
     }));
     const event = { resolve: jest.fn() };
-    getHandler(block, 'click')(event);
+    await getHandler(block, 'click')(event);
     expect(event.resolve.mock.calls[0][0].lineItems[1]).toEqual({
       name: 'Shipping & Handling (Flat Rate - Express)', amount: 500,
     });
@@ -1670,7 +1719,7 @@ describe('stripe-express-checkout EDS block', () => {
     fixture.cart.total.includingTax.value = 13.83;
     await renderAndMount(block, fixture);
     const event = { resolve: jest.fn() };
-    getHandler(block, 'click')(event);
+    await getHandler(block, 'click')(event);
     expect(block.stripeInstance.elements).toHaveBeenCalledWith(
       expect.objectContaining({ amount: 1383 }),
     );
@@ -1691,7 +1740,7 @@ describe('stripe-express-checkout EDS block', () => {
     await renderAndMount(block, fixture);
     const amount = Math.round(fixture.cart.total.includingTax.value * 100);
     const event = { resolve: jest.fn() };
-    getHandler(block, 'click')(event);
+    await getHandler(block, 'click')(event);
     expect(block.stripeInstance.elements).toHaveBeenCalledWith(expect.objectContaining({ amount }));
     expect(event.resolve).toHaveBeenCalledWith({ lineItems: [{ name: 'Grand Total', amount }] });
     expect(block.mocks.checkoutApi.setShippingMethods).not.toHaveBeenCalled();
@@ -1705,7 +1754,7 @@ describe('stripe-express-checkout EDS block', () => {
     fixture.method.amount = fixture.method.amountInclTax;
     await renderAndMount(block, fixture);
     const event = { resolve: jest.fn() };
-    getHandler(block, 'click')(event);
+    await getHandler(block, 'click')(event);
     expect(event.resolve).toHaveBeenCalledWith({
       lineItems: [
         { name: 'Subtotal', amount: 1060 },
@@ -1722,7 +1771,7 @@ describe('stripe-express-checkout EDS block', () => {
     block.mocks.cartApi.getStoreConfig.mockRejectedValue(new Error('Unavailable'));
     await renderAndMount(block, summaryFixture());
     const event = { resolve: jest.fn() };
-    getHandler(block, 'click')(event);
+    await getHandler(block, 'click')(event);
     expect(event.resolve).toHaveBeenCalledWith({
       lineItems: [{ name: 'Grand Total', amount: 1583 }],
     });

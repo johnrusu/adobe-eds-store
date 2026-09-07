@@ -201,6 +201,13 @@ export default async function decorate(block) {
     { name: TERMS_AND_CONDITIONS_FORM_NAME },
   ]);
 
+  // Magento-owned wallets rely on the checkout shipping form (including phone).
+  // Amazon collects its own address, so that path keeps terms-only validation.
+  const handleExpressShippingValidation = () => validateForms([
+    { name: SHIPPING_FORM_NAME, ref: shippingFormRef },
+    { name: BILLING_FORM_NAME, ref: billingFormRef },
+  ]);
+
   const handlePlaceOrder = async ({ cartId, code }) => {
     await displayOverlaySpinner(loaderRef, $loader, $loaderStatus);
     try {
@@ -271,6 +278,7 @@ export default async function decorate(block) {
 
     renderPaymentMethods($paymentMethods, creditCardFormRef, {
       handleExpressValidation,
+      handleExpressShippingValidation,
     }),
 
     renderBillingAddressFormSkeleton($billingForm),

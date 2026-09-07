@@ -153,6 +153,8 @@ export const MESSAGES = Object.freeze({
   CART_UNAVAILABLE: 'The active cart is unavailable.',
   TERMS_REQUIRED:
     'Please accept the terms and conditions, then try Express Checkout again.',
+  CHECKOUT_FIELDS_REQUIRED:
+    'Please fix the highlighted required fields, then try Express Checkout again.',
   SHIPPING_REQUIRED:
     'Please fill in your shipping address and select a shipping method, then try Express Checkout again.',
   SUBMIT_FAILED: 'The wallet could not submit this payment.',

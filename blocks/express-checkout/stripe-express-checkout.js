@@ -87,6 +87,23 @@ function getElementsOptions() {
 }
 
 /**
+ * Validate Magento-owned checkout fields before opening or confirming a wallet.
+ * Terms apply to every wallet. Shipping/billing forms apply only when Magento
+ * owns the address (Link and the other payment-only wallets).
+ * @param {boolean} collectShipping Whether this wallet collects shipping.
+ * @returns {Promise<string|null>} Customer-facing error, or null when valid.
+ */
+async function getCheckoutValidationError(collectShipping) {
+  if (!collectShipping && state.validateShipping && !(await state.validateShipping())) {
+    return MESSAGES.CHECKOUT_FIELDS_REQUIRED;
+  }
+  if (state.validateCheckout && !(await state.validateCheckout())) {
+    return MESSAGES.TERMS_REQUIRED;
+  }
+  return null;
+}
+
+/**
  * Supply rates only for a wallet configured to collect shipping.
  * @param {boolean} collectShipping Whether this wallet collects shipping.
  * @returns {Object}
@@ -224,8 +241,9 @@ async function runConfirmation(event) {
     if (!cartId) {
       throw new Error(MESSAGES.CART_UNAVAILABLE);
     }
-    if (state.validateCheckout && !(await state.validateCheckout())) {
-      await setPaymentStatus(MESSAGES.TERMS_REQUIRED, STATUS.ERROR);
+    const validationError = await getCheckoutValidationError(state.walletShippingRequired);
+    if (validationError) {
+      await setPaymentStatus(validationError, STATUS.ERROR);
       notifyPaymentFailure(event);
       return false;
     }
@@ -412,12 +430,22 @@ function activateWallet(wallet) {
  */
 function registerExpressCheckoutHandlers(wallet) {
   const { element: walletElement, collectsShipping: collectShipping } = wallet;
-  walletElement.on(EVENTS.CLICK, (event) => {
+  walletElement.on(EVENTS.CLICK, async (event) => {
     clearPaymentStatus();
     state.modalOpen = true;
     state.walletReauthorizationRequired = false;
     setCheckoutBlocked(true);
     activateWallet(wallet);
+    const validationError = await getCheckoutValidationError(collectShipping);
+    if (validationError) {
+      state.modalOpen = false;
+      setCheckoutBlocked(false);
+      if (typeof event.reject === 'function') {
+        event.reject();
+      }
+      await setPaymentStatus(validationError, STATUS.ERROR);
+      return;
+    }
     if (!collectShipping) {
       const money = getWalletElementsAmount();
       if (
@@ -581,12 +609,14 @@ async function synchronizeMountedElement() {
  * @param {Object} ctx Checkout slot context providing replaceHTML.
  * @param {Object} [options] Checkout integration settings.
  * @param {function(): Promise<boolean>} [options.handleValidation] Terms validation callback.
+ * @param {function(): Promise<boolean>} [options.handleShippingValidation] Magento form validation.
  * @returns {void}
  */
 function renderStripePaymentMethod(ctx, options = {}) {
   destroyExpressCheckout();
   clearPaymentStatus();
   state.validateCheckout = options.handleValidation || null;
+  state.validateShipping = options.handleShippingValidation || null;
   const content = document.createElement('div');
   content.className = BLOCK_CLASS;
   state.blockContainer = content;
@@ -684,6 +714,7 @@ events.on(EVENTS.CART_RESET, () => {
  * @param {Element} block Host element supplied by checkout.
  * @param {Object} [options] Checkout integration settings.
  * @param {function(): Promise<boolean>} [options.handleValidation] Terms validation callback.
+ * @param {function(): Promise<boolean>} [options.handleShippingValidation] Magento form validation.
  * @returns {void}
  */
 export default function decorate(block, options = {}) {

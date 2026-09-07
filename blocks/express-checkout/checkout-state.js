@@ -63,4 +63,6 @@ export const state = {
   walletReauthorizationRequired: false,
   /** @type {(function(): Promise<boolean>)|null} Checkout terms validator. */
   validateCheckout: null,
+  /** @type {(function(): Promise<boolean>)|null} Magento shipping/billing form validator. */
+  validateShipping: null,
 };

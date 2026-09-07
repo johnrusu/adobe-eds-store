@@ -339,7 +339,8 @@ export const renderShippingMethods = async (container) => renderContainer(
  * @param {HTMLElement} container - DOM element to render payment methods in
  * @param {Object} creditCardFormRef - React-style ref for credit card form
  * @param {Object} options - Additional payment integration options
- * @param {Function} options.handleExpressValidation - Express Checkout validation callback
+ * @param {Function} options.handleExpressValidation - Express Checkout terms validation
+ * @param {Function} options.handleExpressShippingValidation - Magento shipping form validation
  * @returns {Promise<Object>} - The rendered payment methods component
  */
 export const renderPaymentMethods = async (
@@ -355,6 +356,7 @@ export const renderPaymentMethods = async (
         ctx.appendChild(expressCheckout);
         renderExpressCheckout(expressCheckout, {
           handleValidation: options.handleExpressValidation,
+          handleShippingValidation: options.handleExpressShippingValidation,
         });
       },
       Methods: {
