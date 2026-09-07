@@ -150,7 +150,12 @@ async function loadOrderSummarySettings() {
  * @returns {Array<{name: string, amount: number}>} Rows matching the displayed total.
  */
 function getWalletLineItems(amount = state.currentAmount) {
-  const rows = buildOrderSummary(state.cartData, getSelectedShippingMethod(), state.summaryDisplaySettings, isVirtualCart());
+  const rows = buildOrderSummary(
+    state.cartData,
+    getSelectedShippingMethod(),
+    state.summaryDisplaySettings,
+    isVirtualCart(),
+  );
   const currency = state.cartData?.total?.includingTax?.currency;
   if (currency?.toLowerCase() === state.currentCurrency
     && rows.length && rows.reduce((sum, row) => sum + row.amount, 0) === amount) return rows;

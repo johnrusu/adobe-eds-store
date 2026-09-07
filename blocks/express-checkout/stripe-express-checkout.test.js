@@ -437,7 +437,9 @@ function loadStripeExpressCheckoutBlock({
     __mocks: {
       events,
       cartApi: {
-        getStoreConfig: jest.fn().mockResolvedValue({ shoppingCartDisplaySetting: displaySettings }),
+        getStoreConfig: jest.fn().mockResolvedValue({
+          shoppingCartDisplaySetting: displaySettings,
+        }),
         refreshCart: jest.fn().mockResolvedValue(null),
       },
       checkoutApi: {
