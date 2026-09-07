@@ -5,7 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const STRIPE_BLOCK_PATH = path.join(__dirname, 'stripe-express-checkout.js');
+const STRIPE_BLOCK_PATH = process.env.EXPRESS_CHECKOUT_SOURCE
+  || path.join(__dirname, 'stripe-express-checkout.js');
 
 function flushPromises() {
   return new Promise((resolve) => {
@@ -54,9 +55,7 @@ function createElement(tagName) {
     scrollIntoView: jest.fn(),
     classList: {
       add: jest.fn((className) => {
-        element.className = [element.className, className]
-          .filter(Boolean)
-          .join(' ');
+        element.className = [element.className, className].filter(Boolean).join(' ');
       }),
       remove: jest.fn((className) => {
         element.className = element.className
@@ -70,9 +69,7 @@ function createElement(tagName) {
         const has = tokens.includes(className);
         const shouldHave = force === true || (force !== false && !has);
         element.className = shouldHave
-          ? [...tokens.filter((token) => token !== className), className].join(
-            ' ',
-          )
+          ? [...tokens.filter((token) => token !== className), className].join(' ')
           : tokens.filter((token) => token !== className).join(' ');
         return shouldHave;
       }),
@@ -163,45 +160,44 @@ function createDocument() {
   };
 }
 
+/**
+ * Load the block's small ES module graph in isolated VM contexts without a build.
+ * Only module declarations are adapted; production function bodies stay intact.
+ * @param {string} source ES module source.
+ * @returns {string} Source using the test loader's module bindings.
+ */
 function transformStripeBlockSource(source) {
-  return source
+  const namedExports = [];
+  let defaultExport;
+  const transformed = source
     .replace(
-      /import \{ events \} from ['"]@dropins\/tools\/event-bus\.js['"];/,
-      'const { events } = __mocks;',
+      /import\s+([\s\S]*?)\s+from\s+['"]([^'"]+)['"];?/g,
+      (_match, bindings, specifier) => {
+        const binding = bindings.trim();
+        const declaration = binding.startsWith('* as ')
+          ? binding.slice(5)
+          : binding.replace(/\bas\b/g, ':');
+        return `const ${declaration} = __require('${specifier}');`;
+      },
     )
-    .replace(
-      /import \* as cartApi from ['"]@dropins\/storefront-cart\/api\.js['"];/,
-      'const { cartApi } = __mocks;',
-    )
-    .replace(
-      /import \* as checkoutApi from ['"]@dropins\/storefront-checkout\/api\.js['"];/,
-      'const { checkoutApi } = __mocks;',
-    )
-    .replace(
-      /import \* as orderApi from ['"]@dropins\/storefront-order\/api\.js['"];/,
-      'const { orderApi } = __mocks;',
-    )
-    .replace(
-      /import \{\s*Icon,\s*InLineAlert,\s*provider as UI,\s*\} from ['"]@dropins\/tools\/components\.js['"];/,
-      'const { Icon, InLineAlert, UI } = __mocks;',
-    )
-    .replace(
-      /import \{ h \} from ['"]@dropins\/tools\/preact\.js['"];/,
-      'const { h } = __mocks;',
-    )
-    .replace(
-      /import \{ loadCSS \} from ['"]\.\.\/\.\.\/scripts\/aem\.js['"];/,
-      'const { loadCSS } = __mocks;',
-    )
-    .replace(
-      /export \{\s*handleStripePayment,\s*renderStripePaymentMethod,\s*validateStripePayment,\s*\};/,
-      'Object.assign(__exports, { handleStripePayment, renderStripePaymentMethod, validateStripePayment });',
-    )
-    .replace(
-      'export default function decorate(block, options = {}) {',
-      'function decorate(block, options = {}) {',
-    )
-    .concat('\n__exports.default = decorate;\n');
+    .replace(/export default function (\w+)/g, (_match, name) => {
+      defaultExport = name;
+      return `function ${name}`;
+    })
+    .replace(/export (const|function) (\w+)/g, (_match, kind, name) => {
+      namedExports.push(name);
+      return `${kind} ${name}`;
+    })
+    .replace(/export \{([\s\S]*?)\};?/g, (_match, names) => {
+      namedExports.push(
+        ...names
+          .split(',')
+          .map((name) => name.trim())
+          .filter(Boolean),
+      );
+      return '';
+    });
+  return `${transformed}\nObject.assign(module.exports, { ${namedExports.join(', ')} });\n${defaultExport ? `module.exports.default = ${defaultExport};` : ''}`;
 }
 
 function stripePaymentMethod() {
@@ -210,8 +206,7 @@ function stripePaymentMethod() {
     oope_payment_method_config: {
       backend_integration_url: JSON.stringify({
         getInitParamsUrl: 'https://commerce-config.example/init-params',
-        createPaymentIntentUrl:
-          'https://commerce-config.example/payment-intent',
+        createPaymentIntentUrl: 'https://commerce-config.example/payment-intent',
       }),
     },
   };
@@ -223,6 +218,15 @@ function shippingMethod() {
     code: 'flatrate',
     title: 'Fixed',
     amount: { value: 5, currency: 'USD' },
+  };
+}
+
+function tableRateShippingMethod() {
+  return {
+    carrier: { code: 'tablerate', title: 'Best Way' },
+    code: 'bestway',
+    title: 'Table Rate',
+    amount: { value: 15, currency: 'USD' },
   };
 }
 
@@ -305,6 +309,7 @@ function initParamsPayload(overrides = {}) {
 function loadStripeExpressCheckoutBlock({
   search = '',
   initParams = initParamsPayload(),
+  separateWalletInstances = false,
 } = {}) {
   const handlers = new Map();
   const lastPayloads = new Map();
@@ -332,9 +337,7 @@ function loadStripeExpressCheckoutBlock({
   const uiRender = jest.fn((_component, props) => async (container) => {
     const alert = createElement('div');
     alert.className = 'dropin-in-line-alert';
-    alert.textContent = [props.heading, props.description]
-      .filter(Boolean)
-      .join(' ');
+    alert.textContent = [props.heading, props.description].filter(Boolean).join(' ');
     container.appendChild(alert);
     return alert;
   });
@@ -344,8 +347,20 @@ function loadStripeExpressCheckoutBlock({
     on: jest.fn(),
     destroy: jest.fn(),
   };
+  const amazonExpressCheckoutElement = {
+    mount: jest.fn(),
+    on: jest.fn(),
+    destroy: jest.fn(),
+  };
   const elements = {
-    create: jest.fn(() => expressCheckoutElement),
+    create: jest.fn((type, options = {}) => (options.shippingAddressRequired
+      ? amazonExpressCheckoutElement
+      : expressCheckoutElement)),
+    submit: jest.fn().mockResolvedValue({}),
+    update: jest.fn().mockResolvedValue(undefined),
+  };
+  const amazonElements = {
+    create: jest.fn(() => amazonExpressCheckoutElement),
     submit: jest.fn().mockResolvedValue({}),
     update: jest.fn().mockResolvedValue(undefined),
   };
@@ -360,6 +375,11 @@ function loadStripeExpressCheckoutBlock({
     }),
     createPaymentMethod: jest.fn(),
   };
+  if (separateWalletInstances) {
+    stripeInstance.elements
+      .mockImplementationOnce(() => elements)
+      .mockImplementationOnce(() => amazonElements);
+  }
 
   const fetch = jest.fn(async (url) => {
     if (url.endsWith('/init-params')) {
@@ -397,9 +417,7 @@ function loadStripeExpressCheckoutBlock({
           },
         }),
         setShippingAddress: jest.fn().mockResolvedValue(null),
-        estimateShippingMethods: jest
-          .fn()
-          .mockResolvedValue([shippingMethod()]),
+        estimateShippingMethods: jest.fn().mockResolvedValue([shippingMethod()]),
         setShippingMethods: jest.fn().mockResolvedValue(null),
         setGuestEmailOnCart: jest.fn().mockResolvedValue(undefined),
         setBillingAddress: jest.fn().mockResolvedValue(null),
@@ -432,10 +450,36 @@ function loadStripeExpressCheckoutBlock({
   };
 
   vm.createContext(context);
-  const source = transformStripeBlockSource(
-    fs.readFileSync(STRIPE_BLOCK_PATH, 'utf8'),
-  );
-  new vm.Script(source, { filename: STRIPE_BLOCK_PATH }).runInContext(context);
+  const moduleCache = new Map();
+  const externals = {
+    '@dropins/tools/event-bus.js': { events },
+    '@dropins/storefront-cart/api.js': context.__mocks.cartApi,
+    '@dropins/storefront-checkout/api.js': context.__mocks.checkoutApi,
+    '@dropins/storefront-order/api.js': context.__mocks.orderApi,
+    '@dropins/tools/components.js': {
+      Icon: context.__mocks.Icon,
+      InLineAlert: context.__mocks.InLineAlert,
+      provider: context.__mocks.UI,
+    },
+    '@dropins/tools/preact.js': { h: context.__mocks.h },
+    '../../scripts/aem.js': { loadCSS: context.__mocks.loadCSS },
+  };
+  const loadModule = (filename) => {
+    if (moduleCache.has(filename)) return moduleCache.get(filename).exports;
+    const module = { exports: {} };
+    moduleCache.set(filename, module);
+    const source = transformStripeBlockSource(fs.readFileSync(filename, 'utf8'));
+    const execute = new vm.Script(`(function(__require, module) { ${source}\n})`, {
+      filename,
+    }).runInContext(context);
+    execute((specifier) => {
+      if (externals[specifier]) return externals[specifier];
+      if (!specifier.startsWith('./')) throw new Error(`Unexpected module: ${specifier}`);
+      return loadModule(path.resolve(path.dirname(filename), specifier));
+    }, module);
+    return module.exports;
+  };
+  context.__exports = loadModule(STRIPE_BLOCK_PATH);
 
   return {
     exports: context.__exports,
@@ -447,16 +491,15 @@ function loadStripeExpressCheckoutBlock({
     fetch,
     Stripe: context.Stripe,
     elements,
+    amazonElements,
     expressCheckoutElement,
+    amazonExpressCheckoutElement,
     stripeInstance,
     uiRender,
   };
 }
 
-async function renderAndMount(
-  block,
-  { cart, checkout, handleValidation } = {},
-) {
+async function renderAndMount(block, { cart, checkout, handleValidation } = {}) {
   const ctx = {
     replaceHTML: jest.fn((content) => {
       block.checkoutRoot.appendChild(content);
@@ -466,18 +509,16 @@ async function renderAndMount(
   block.exports.renderStripePaymentMethod(ctx, { handleValidation });
   await flushPromises();
   await block.events.emit('cart/initialized', cart || cartPayload());
-  await block.events.emit(
-    'checkout/initialized',
-    checkout || checkoutPayload(),
-  );
+  await block.events.emit('checkout/initialized', checkout || checkoutPayload());
   await waitForMount(block);
   return ctx;
 }
 
-function getHandler(block, eventName) {
-  const call = block.expressCheckoutElement.on.mock.calls.find(
-    ([name]) => name === eventName,
-  );
+function getHandler(block, eventName, wallet = 'default') {
+  const element = wallet === 'amazon'
+    ? block.amazonExpressCheckoutElement
+    : block.expressCheckoutElement;
+  const call = element.on.mock.calls.find(([name]) => name === eventName);
   return call?.[1];
 }
 
@@ -508,8 +549,7 @@ describe('stripe-express-checkout EDS block', () => {
 
   test('mounts deferred ECE from init-params and ignores an untrusted App Builder override', async () => {
     const block = loadStripeExpressCheckoutBlock({
-      search:
-        '?stripeAppBuilderBaseUrl=https://untrusted.example/api/v1/web/stripe/',
+      search: '?stripeAppBuilderBaseUrl=https://untrusted.example/api/v1/web/stripe/',
     });
 
     await renderAndMount(block);
@@ -526,6 +566,7 @@ describe('stripe-express-checkout EDS block', () => {
     expect(block.stripeInstance.registerAppInfo).toHaveBeenCalledWith({
       name: 'Stripe Adobe Commerce App Builder',
     });
+    expect(block.stripeInstance.elements).toHaveBeenCalledTimes(2);
     expect(block.stripeInstance.elements).toHaveBeenCalledWith({
       mode: 'payment',
       amount: 4200,
@@ -543,7 +584,17 @@ describe('stripe-express-checkout EDS block', () => {
       expect.objectContaining({
         billingAddressRequired: false,
         emailRequired: false,
-        phoneNumberRequired: true,
+        phoneNumberRequired: false,
+        shippingAddressRequired: false,
+        paymentMethods: { amazonPay: 'never' },
+      }),
+    );
+    expect(block.elements.create).toHaveBeenCalledWith(
+      'expressCheckout',
+      expect.objectContaining({
+        billingAddressRequired: false,
+        emailRequired: false,
+        phoneNumberRequired: false,
         shippingAddressRequired: true,
         shippingRates: [
           {
@@ -552,22 +603,31 @@ describe('stripe-express-checkout EDS block', () => {
             amount: 500,
           },
         ],
+        paymentMethods: {
+          applePay: 'never',
+          googlePay: 'never',
+          link: 'never',
+          paypal: 'never',
+          klarna: 'never',
+        },
       }),
     );
     expect(block.expressCheckoutElement.mount).toHaveBeenCalledWith(
       '#stripe-express-checkout-element',
     );
-    const expressBlock = block.document.querySelector(
-      '.stripe-express-checkout',
+    expect(block.amazonExpressCheckoutElement.mount).toHaveBeenCalledWith(
+      '#stripe-express-checkout-amazon',
     );
+    const expressBlock = block.document.querySelector('.stripe-express-checkout');
     expect(expressBlock.children.map((child) => child.className)).toEqual([
       'stripe-express-checkout-heading',
       'stripe-express-checkout-loading',
+      'stripe-express-checkout-amazon stripe-express-checkout-loading',
       'stripe-express-checkout-status',
       'stripe-express-checkout-separator',
     ]);
     expect(expressBlock.children[0].textContent).toBe('Express checkout');
-    expect(expressBlock.children[3].textContent).toBe('Or pay another way');
+    expect(expressBlock.children[4].textContent).toBe('Or pay another way');
     expect(block.localStorage.setItem).not.toHaveBeenCalled();
   });
 
@@ -632,10 +692,12 @@ describe('stripe-express-checkout EDS block', () => {
     expect(block.stripeInstance.elements.mock.calls[0][0].captureMethod).toBeUndefined();
     expect(
       block.stripeInstance.elements.mock.calls[0][0].paymentMethodOptions.card,
-    ).toEqual({ capture_method: 'manual' });
+    ).toEqual({
+      capture_method: 'manual',
+    });
   });
 
-  test('collects shipping in the wallet when the cart is missing address or method', async () => {
+  test('keeps Link without shipping and Amazon Pay with shipping', async () => {
     const block = loadStripeExpressCheckoutBlock();
 
     await renderAndMount(block, { checkout: incompleteCheckoutPayload() });
@@ -646,7 +708,18 @@ describe('stripe-express-checkout EDS block', () => {
         billingAddressRequired: true,
         emailRequired: true,
         phoneNumberRequired: true,
+        shippingAddressRequired: false,
+        paymentMethods: { amazonPay: 'never' },
+      }),
+    );
+    expect(block.elements.create).toHaveBeenCalledWith(
+      'expressCheckout',
+      expect.objectContaining({
         shippingAddressRequired: true,
+        paymentMethods: expect.objectContaining({
+          link: 'never',
+          applePay: 'never',
+        }),
       }),
     );
   });
@@ -654,9 +727,11 @@ describe('stripe-express-checkout EDS block', () => {
   test('persists a complete wallet address and resolves Commerce rates', async () => {
     const block = loadStripeExpressCheckoutBlock();
     await renderAndMount(block, { checkout: incompleteCheckoutPayload() });
-    block.mocks.cartApi.refreshCart.mockResolvedValue(cartPayload({
-      total: { includingTax: { value: 47, currency: 'USD' } },
-    }));
+    block.mocks.cartApi.refreshCart.mockResolvedValue(
+      cartPayload({
+        total: { includingTax: { value: 47, currency: 'USD' } },
+      }),
+    );
     block.mocks.checkoutApi.setShippingAddress.mockResolvedValue({
       shippingAddress: {
         ...commerceAddress(),
@@ -714,14 +789,12 @@ describe('stripe-express-checkout EDS block', () => {
     await getHandler(block, 'shippingaddresschange')(event);
 
     expect(block.mocks.checkoutApi.setShippingAddress).not.toHaveBeenCalled();
-    expect(block.mocks.checkoutApi.estimateShippingMethods).toHaveBeenCalledWith(
-      {
-        criteria: {
-          country_code: 'GB',
-          zip: 'SW1A',
-        },
+    expect(block.mocks.checkoutApi.estimateShippingMethods).toHaveBeenCalledWith({
+      criteria: {
+        country_code: 'GB',
+        zip: 'SW1A',
       },
-    );
+    });
     expect(event.resolve).toHaveBeenCalledWith({
       shippingRates: [
         {
@@ -742,7 +815,10 @@ describe('stripe-express-checkout EDS block', () => {
         availableShippingMethods: [shippingMethod()],
       },
     });
-    await getHandler(block, 'shippingaddresschange')({
+    await getHandler(
+      block,
+      'shippingaddresschange',
+    )({
       name: 'Ada Lovelace',
       address: walletAddress().address,
       phone: '020 7946 0000',
@@ -770,7 +846,10 @@ describe('stripe-express-checkout EDS block', () => {
   test('previews a shipping rate without persisting it when the wallet address is still redacted', async () => {
     const block = loadStripeExpressCheckoutBlock();
     await renderAndMount(block, { checkout: incompleteCheckoutPayload() });
-    await getHandler(block, 'shippingaddresschange')({
+    await getHandler(
+      block,
+      'shippingaddresschange',
+    )({
       name: '',
       address: { country: 'GB', postal_code: 'SW1A' },
       resolve: jest.fn(),
@@ -791,7 +870,12 @@ describe('stripe-express-checkout EDS block', () => {
 
   test('confirms a guest cart with a Confirmation Token then places the order', async () => {
     const block = loadStripeExpressCheckoutBlock();
-    await renderAndMount(block, { checkout: incompleteCheckoutPayload() });
+    await renderAndMount(block, {
+      checkout: checkoutPayload({
+        email: '',
+        billingAddress: null,
+      }),
+    });
     block.mocks.checkoutApi.getCart.mockResolvedValue(checkoutPayload());
     block.mocks.cartApi.refreshCart.mockResolvedValue(cartPayload());
 
@@ -802,6 +886,7 @@ describe('stripe-express-checkout EDS block', () => {
     expect(block.mocks.checkoutApi.setGuestEmailOnCart).toHaveBeenCalledWith(
       'customer@example.com',
     );
+    expect(block.mocks.checkoutApi.setShippingAddress).not.toHaveBeenCalled();
     expect(block.elements.submit).toHaveBeenCalledTimes(1);
     expect(block.stripeInstance.createConfirmationToken).toHaveBeenCalledWith({
       elements: block.elements,
@@ -817,7 +902,12 @@ describe('stripe-express-checkout EDS block', () => {
         shipping: {
           name: 'Ada Lovelace',
           phone: '020 7946 0000',
-          address: walletAddress().address,
+          address: {
+            line1: '1 Algorithm Way',
+            city: 'London',
+            country: 'GB',
+            postal_code: 'SW1A 1AA',
+          },
         },
       },
     });
@@ -851,30 +941,77 @@ describe('stripe-express-checkout EDS block', () => {
       redirect: 'if_required',
     });
     expect(block.mocks.orderApi.placeOrder).toHaveBeenCalledWith('cart_123');
-    expect(
-      block.events.lastPayload('checkout/values').selectedPaymentMethod.code,
-    ).toBe('oope_stripe');
-    expect(event.paymentFailed).not.toHaveBeenCalled();
-    const status = block.document.querySelector(
-      '.stripe-express-checkout-status',
+    expect(block.events.lastPayload('checkout/values').selectedPaymentMethod.code).toBe(
+      'oope_stripe',
     );
+    expect(event.paymentFailed).not.toHaveBeenCalled();
+    const status = block.document.querySelector('.stripe-express-checkout-status');
     expect(status.children[0].textContent).toContain('Payment successful');
     expect(status.children[0].textContent).toContain('order has been placed');
-    await expect(block.exports.handleStripePayment('cart_123')).resolves.toBe(
-      true,
-    );
+    await expect(block.exports.handleStripePayment('cart_123')).resolves.toBe(true);
   });
 
   test('does not replace an existing shipping address with wallet billing details', async () => {
     const block = loadStripeExpressCheckoutBlock();
     await renderAndMount(block);
 
-    await getHandler(block, 'confirm')(
-      createConfirmEvent({ shippingAddress: null, shippingRate: null }),
-    );
+    await getHandler(
+      block,
+      'confirm',
+    )(createConfirmEvent({ shippingAddress: null, shippingRate: null }));
 
     expect(block.mocks.checkoutApi.setShippingAddress).not.toHaveBeenCalled();
     expect(block.mocks.checkoutApi.setShippingMethods).not.toHaveBeenCalled();
+    expect(block.mocks.orderApi.placeOrder).toHaveBeenCalledWith('cart_123');
+  });
+
+  test('confirms Link with Magento shipping when the wallet has no address', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    await renderAndMount(block, {
+      checkout: checkoutPayload({
+        billingAddress: null,
+      }),
+    });
+    block.mocks.checkoutApi.getCart.mockResolvedValue(checkoutPayload());
+    block.mocks.cartApi.refreshCart.mockResolvedValue(cartPayload());
+
+    const event = createConfirmEvent({
+      shippingAddress: null,
+      shippingRate: null,
+      billingDetails: {
+        name: 'Ada Lovelace',
+        email: 'customer@example.com',
+        phone: '020 7946 0000',
+      },
+    });
+    await getHandler(block, 'confirm')(event);
+
+    expect(block.mocks.checkoutApi.setBillingAddress).toHaveBeenCalledWith({
+      sameAsShipping: true,
+    });
+    expect(block.stripeInstance.createConfirmationToken).toHaveBeenCalledWith({
+      elements: block.elements,
+      params: {
+        payment_method_data: {
+          billing_details: {
+            name: 'Ada Lovelace',
+            email: 'customer@example.com',
+            phone: '020 7946 0000',
+          },
+        },
+        shipping: {
+          name: 'Ada Lovelace',
+          phone: '020 7946 0000',
+          address: {
+            line1: '1 Algorithm Way',
+            city: 'London',
+            country: 'GB',
+            postal_code: 'SW1A 1AA',
+          },
+        },
+      },
+    });
+    expect(event.paymentFailed).not.toHaveBeenCalled();
     expect(block.mocks.orderApi.placeOrder).toHaveBeenCalledWith('cart_123');
   });
 
@@ -946,9 +1083,7 @@ describe('stripe-express-checkout EDS block', () => {
     await renderAndMount(block);
 
     expect(block.exports.validateStripePayment()).toBe(false);
-    await expect(block.exports.handleStripePayment('cart_123')).resolves.toBe(
-      false,
-    );
+    await expect(block.exports.handleStripePayment('cart_123')).resolves.toBe(false);
     expect(block.stripeInstance.createConfirmationToken).not.toHaveBeenCalled();
     expect(block.mocks.orderApi.placeOrder).not.toHaveBeenCalled();
   });
@@ -963,17 +1098,12 @@ describe('stripe-express-checkout EDS block', () => {
       'Stripe Express Checkout Element failed to load.',
       expect.any(Error),
     );
-    const mountEl = block.document.querySelector(
-      '#stripe-express-checkout-element',
-    );
+    const mountEl = block.document.querySelector('#stripe-express-checkout-element');
     expect(mountEl.hidden).toBe(true);
     expect(mountEl.className).toContain('stripe-express-checkout-hidden');
     expect(mountEl.children).toHaveLength(0);
-    expect(block.document.querySelector('.stripe-express-checkout').hidden)
-      .toBe(false);
-    const status = block.document.querySelector(
-      '.stripe-express-checkout-status',
-    );
+    expect(block.document.querySelector('.stripe-express-checkout').hidden).toBe(false);
+    const status = block.document.querySelector('.stripe-express-checkout-status');
     expect(status.children[0].textContent).toContain('Payment failed');
     expect(status.children[0].textContent).toContain(
       'Please use the card payment form below',
@@ -986,8 +1116,7 @@ describe('stripe-express-checkout EDS block', () => {
 
     getHandler(block, 'ready')({ availablePaymentMethods: null });
 
-    expect(block.document.querySelector('.stripe-express-checkout').hidden)
-      .toBe(true);
+    expect(block.document.querySelector('.stripe-express-checkout').hidden).toBe(true);
   });
 
   test('blocks checkout on wallet click and unblocks on cancel and escape', async () => {
@@ -995,33 +1124,33 @@ describe('stripe-express-checkout EDS block', () => {
     await renderAndMount(block);
     const clickEvent = { resolve: jest.fn() };
 
-    getHandler(block, 'click')(clickEvent);
+    await getHandler(block, 'click')(clickEvent);
 
-    expect(block.checkoutRoot.className).toContain(
-      'stripe-express-checkout-blocked',
-    );
+    expect(block.checkoutRoot.className).toContain('stripe-express-checkout-blocked');
     expect(block.checkoutRoot.attributes['aria-busy']).toBe('true');
-    expect(clickEvent.resolve).toHaveBeenCalledWith({
-      shippingRates: [
-        {
-          id: 'flatrate:flatrate',
-          displayName: 'Flat Rate - Fixed',
-          amount: 500,
-        },
-      ],
-    });
+    expect(clickEvent.resolve).toHaveBeenCalledWith({});
 
     getHandler(block, 'cancel')();
-    expect(block.checkoutRoot.className).not.toContain(
-      'stripe-express-checkout-blocked',
-    );
+    expect(block.checkoutRoot.className).not.toContain('stripe-express-checkout-blocked');
     expect(block.checkoutRoot.attributes['aria-busy']).toBeUndefined();
 
-    getHandler(block, 'click')(clickEvent);
+    await getHandler(block, 'click')(clickEvent);
     getHandler(block, 'escape')();
-    expect(block.checkoutRoot.className).not.toContain(
-      'stripe-express-checkout-blocked',
-    );
+    expect(block.checkoutRoot.className).not.toContain('stripe-express-checkout-blocked');
+  });
+
+  test('does not pass shippingAddressRequired on Link click', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    await renderAndMount(block);
+    const clickEvent = {
+      expressPaymentType: 'link',
+      resolve: jest.fn(),
+    };
+
+    await getHandler(block, 'click')(clickEvent);
+
+    expect(clickEvent.resolve).toHaveBeenCalledWith({});
+    expect(clickEvent.resolve.mock.calls[0][0].shippingAddressRequired).toBeUndefined();
   });
 
   test('includes selected shipping when the cart total is still the item subtotal', async () => {
@@ -1045,31 +1174,97 @@ describe('stripe-express-checkout EDS block', () => {
     });
     const clickEvent = { resolve: jest.fn() };
 
-    getHandler(block, 'click')(clickEvent);
+    await getHandler(block, 'click')(clickEvent);
 
     expect(block.stripeInstance.elements).toHaveBeenCalledWith(
       expect.objectContaining({ amount: 4401, currency: 'eur' }),
     );
-    expect(clickEvent.resolve).toHaveBeenCalledWith({
-      shippingRates: [
-        {
-          id: 'flatrate:flatrate',
-          displayName: 'Flat Rate - Fixed',
-          amount: 500,
-        },
-      ],
-    });
+    expect(clickEvent.resolve).toHaveBeenCalledWith({});
     expect(block.elements.update).not.toHaveBeenCalled();
 
-    await block.events.emit('cart/updated', cartPayload({
-      total: { includingTax: { value: 39.01, currency: 'EUR' } },
-      subtotal: { includingTax: { value: 39.01, currency: 'EUR' } },
-    }));
+    await block.events.emit(
+      'cart/updated',
+      cartPayload({
+        total: { includingTax: { value: 39.01, currency: 'EUR' } },
+        subtotal: { includingTax: { value: 39.01, currency: 'EUR' } },
+      }),
+    );
 
     expect(block.elements.update).not.toHaveBeenCalledWith({ amount: 3901 });
   });
 
-  test('resolves wallet click immediately with default shipping in the amount', async () => {
+  test('uses the selected Magento shipping option instead of the first rate', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    const flatRate = shippingMethod();
+    const tableRate = tableRateShippingMethod();
+    block.mocks.cartApi.refreshCart.mockResolvedValue(
+      cartPayload({
+        total: { includingTax: { value: 63.71, currency: 'USD' } },
+        subtotal: { includingTax: { value: 48.71, currency: 'USD' } },
+      }),
+    );
+    await renderAndMount(block, {
+      cart: cartPayload({
+        total: { includingTax: { value: 53.71, currency: 'USD' } },
+        subtotal: { includingTax: { value: 48.71, currency: 'USD' } },
+      }),
+      checkout: checkoutPayload({
+        shippingAddress: {
+          ...commerceAddress(),
+          selectedShippingMethod: tableRate,
+          availableShippingMethods: [flatRate, tableRate],
+        },
+      }),
+    });
+
+    expect(block.mocks.checkoutApi.setShippingMethods).toHaveBeenCalledWith([
+      { carrierCode: 'tablerate', methodCode: 'bestway' },
+    ]);
+    expect(block.stripeInstance.elements).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: 6371, currency: 'usd' }),
+    );
+
+    const clickEvent = {
+      expressPaymentType: 'link',
+      resolve: jest.fn(),
+    };
+    await getHandler(block, 'click')(clickEvent);
+
+    expect(clickEvent.resolve).toHaveBeenCalledWith({});
+  });
+
+  test('opens the wallet sheet without waiting for Magento shipping persist', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    const flatRate = shippingMethod();
+    const tableRate = tableRateShippingMethod();
+    await renderAndMount(block, {
+      cart: cartPayload({
+        total: { includingTax: { value: 53.71, currency: 'USD' } },
+        subtotal: { includingTax: { value: 48.71, currency: 'USD' } },
+      }),
+      checkout: checkoutPayload({
+        shippingAddress: {
+          ...commerceAddress(),
+          selectedShippingMethod: tableRate,
+          availableShippingMethods: [flatRate, tableRate],
+        },
+      }),
+    });
+
+    block.mocks.checkoutApi.setShippingMethods.mockImplementation(
+      () => new Promise(() => {}),
+    );
+
+    const clickEvent = {
+      expressPaymentType: 'link',
+      resolve: jest.fn(),
+    };
+    getHandler(block, 'click')(clickEvent);
+
+    expect(clickEvent.resolve).toHaveBeenCalledWith({});
+  });
+
+  test('resolves Amazon Pay click immediately with Magento shipping rates', async () => {
     const block = loadStripeExpressCheckoutBlock();
     const checkout = checkoutPayload({
       shippingAddress: {
@@ -1079,9 +1274,12 @@ describe('stripe-express-checkout EDS block', () => {
       },
     });
     await renderAndMount(block, { checkout });
-    const clickEvent = { resolve: jest.fn() };
+    const clickEvent = {
+      expressPaymentType: 'amazon_pay',
+      resolve: jest.fn(),
+    };
 
-    getHandler(block, 'click')(clickEvent);
+    await getHandler(block, 'click', 'amazon')(clickEvent);
 
     expect(block.stripeInstance.elements).toHaveBeenCalledWith(
       expect.objectContaining({ amount: 4700 }),
@@ -1098,9 +1296,16 @@ describe('stripe-express-checkout EDS block', () => {
     expect(block.elements.update).not.toHaveBeenCalled();
   });
 
-  test('keeps wallet shipping collection after Magento already has address and method', async () => {
+  test('keeps Amazon Pay shipping collection after Magento already has address and method', async () => {
     const block = loadStripeExpressCheckoutBlock();
     await renderAndMount(block, { checkout: incompleteCheckoutPayload() });
+    expect(block.elements.create).toHaveBeenCalledWith(
+      'expressCheckout',
+      expect.objectContaining({
+        shippingAddressRequired: false,
+        paymentMethods: { amazonPay: 'never' },
+      }),
+    );
     expect(block.elements.create).toHaveBeenCalledWith(
       'expressCheckout',
       expect.objectContaining({ shippingAddressRequired: true }),
@@ -1110,8 +1315,22 @@ describe('stripe-express-checkout EDS block', () => {
     await waitForMount(block, 2);
 
     expect(block.expressCheckoutElement.destroy).toHaveBeenCalled();
-    expect(block.elements.create).toHaveBeenLastCalledWith(
-      'expressCheckout',
+    expect(block.amazonExpressCheckoutElement.destroy).toHaveBeenCalled();
+    const defaultOptions = block.elements.create.mock.calls
+      .map(([, options]) => options)
+      .filter((options) => options.shippingAddressRequired === false)
+      .at(-1);
+    const amazonOptions = block.elements.create.mock.calls
+      .map(([, options]) => options)
+      .filter((options) => options.shippingAddressRequired === true)
+      .at(-1);
+    expect(defaultOptions).toEqual(
+      expect.objectContaining({
+        shippingAddressRequired: false,
+        paymentMethods: { amazonPay: 'never' },
+      }),
+    );
+    expect(amazonOptions).toEqual(
       expect.objectContaining({
         shippingAddressRequired: true,
         shippingRates: [
@@ -1123,5 +1342,206 @@ describe('stripe-express-checkout EDS block', () => {
         ],
       }),
     );
+  });
+
+  test('does not persist a wallet shipping address over a complete Magento address', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    await renderAndMount(block);
+
+    await getHandler(
+      block,
+      'shippingaddresschange',
+    )({
+      name: 'Ada Lovelace',
+      address: {
+        ...walletAddress().address,
+        country: 'DE',
+        postal_code: '85356',
+      },
+      phone: '020 7946 0000',
+      resolve: jest.fn(),
+      reject: jest.fn(),
+    });
+
+    expect(block.mocks.checkoutApi.setShippingAddress).not.toHaveBeenCalled();
+    expect(block.mocks.checkoutApi.estimateShippingMethods).toHaveBeenCalled();
+  });
+
+  test('blocks wallet confirmation until Magento has a shipping address and method', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    await renderAndMount(block, { checkout: incompleteCheckoutPayload() });
+
+    const event = createConfirmEvent();
+    await getHandler(block, 'confirm')(event);
+
+    expect(block.mocks.orderApi.placeOrder).not.toHaveBeenCalled();
+    expect(event.paymentFailed).toHaveBeenCalled();
+    expect(
+      block.document.querySelector('.stripe-express-checkout-status').children[0]
+        .textContent,
+    ).toContain('shipping address');
+  });
+
+  test.each(['default', 'amazon'])(
+    'confirms %s using its own Elements instance',
+    async (wallet) => {
+      const block = loadStripeExpressCheckoutBlock({ separateWalletInstances: true });
+      await renderAndMount(block);
+      const event = createConfirmEvent();
+
+      await getHandler(block, 'confirm', wallet)(event);
+
+      const activeElements = wallet === 'amazon' ? block.amazonElements : block.elements;
+      const inactiveElements = wallet === 'amazon' ? block.elements : block.amazonElements;
+      expect(activeElements.submit).toHaveBeenCalledTimes(1);
+      expect(inactiveElements.submit).not.toHaveBeenCalled();
+      expect(block.stripeInstance.createConfirmationToken).toHaveBeenCalledWith(
+        expect.objectContaining({ elements: activeElements }),
+      );
+      expect(event.paymentFailed).not.toHaveBeenCalled();
+      expect(block.mocks.orderApi.placeOrder).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  test('switches back to Magento shipping after dismissing Amazon and opening Link', async () => {
+    const block = loadStripeExpressCheckoutBlock({ separateWalletInstances: true });
+    await renderAndMount(block);
+    getHandler(block, 'click', 'amazon')({ resolve: jest.fn() });
+    getHandler(block, 'cancel', 'amazon')();
+    await flushPromises();
+    const click = { resolve: jest.fn() };
+    getHandler(block, 'click')(click);
+    const confirm = createConfirmEvent({ shippingAddress: null, shippingRate: null });
+    await getHandler(block, 'confirm')(confirm);
+
+    expect(click.resolve).toHaveBeenCalledWith({});
+    expect(block.amazonElements.submit).not.toHaveBeenCalled();
+    expect(block.stripeInstance.createConfirmationToken).toHaveBeenCalledWith(
+      expect.objectContaining({
+        elements: block.elements,
+        params: expect.objectContaining({
+          shipping: expect.objectContaining({
+            address: expect.objectContaining({ line1: '1 Algorithm Way', country: 'GB' }),
+          }),
+        }),
+      }),
+    );
+    expect(confirm.paymentFailed).not.toHaveBeenCalled();
+  });
+
+  test('updates both distinct Elements instances when the cart amount changes', async () => {
+    const block = loadStripeExpressCheckoutBlock({ separateWalletInstances: true });
+    await renderAndMount(block);
+    await block.events.emit(
+      'cart/updated',
+      cartPayload({
+        total: { includingTax: { value: 52, currency: 'USD' } },
+      }),
+    );
+
+    expect(block.elements.update).toHaveBeenCalledTimes(1);
+    expect(block.amazonElements.update).toHaveBeenCalledTimes(1);
+    expect(block.elements.update).toHaveBeenCalledWith({ amount: 5200 });
+    expect(block.amazonElements.update).toHaveBeenCalledWith({ amount: 5200 });
+  });
+
+  test('keeps Link visible when the Amazon element fails to load', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    await renderAndMount(block);
+    getHandler(block, 'ready')({ availablePaymentMethods: { link: true } });
+    getHandler(
+      block,
+      'ready',
+      'amazon',
+    )({ availablePaymentMethods: { amazonPay: true } });
+    await getHandler(
+      block,
+      'loaderror',
+      'amazon',
+    )({ error: new Error('Amazon unavailable') });
+
+    expect(block.document.querySelector('.stripe-express-checkout').hidden).toBe(false);
+    expect(block.document.querySelector('#stripe-express-checkout-element').hidden).toBe(
+      false,
+    );
+    expect(block.document.querySelector('#stripe-express-checkout-amazon').hidden).toBe(
+      true,
+    );
+  });
+
+  test('destroys both wallets on cart reset and remounts them for a new cart', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    await renderAndMount(block);
+    await block.events.emit('cart/reset');
+    expect(block.expressCheckoutElement.destroy).toHaveBeenCalledTimes(1);
+    expect(block.amazonExpressCheckoutElement.destroy).toHaveBeenCalledTimes(1);
+
+    await block.events.emit('cart/initialized', cartPayload({ id: 'cart_456' }));
+    await block.events.emit('checkout/initialized', checkoutPayload({ id: 'cart_456' }));
+    await waitForMount(block, 2);
+    expect(block.amazonExpressCheckoutElement.mount).toHaveBeenCalledTimes(2);
+    expect(block.exports.validateStripePayment()).toBe(false);
+  });
+
+  test('mounts only the payment-only wallet group for a virtual cart', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    await renderAndMount(block, {
+      cart: cartPayload({ isVirtual: true }),
+      checkout: checkoutPayload({ isVirtual: true, shippingAddress: null }),
+    });
+    expect(block.stripeInstance.elements).toHaveBeenCalledTimes(1);
+    expect(block.amazonExpressCheckoutElement.mount).not.toHaveBeenCalled();
+    expect(block.elements.create).toHaveBeenCalledWith(
+      'expressCheckout',
+      expect.objectContaining({
+        shippingAddressRequired: false,
+        paymentMethods: { amazonPay: 'never' },
+      }),
+    );
+  });
+
+  test.each([
+    [
+      'second street line',
+      {
+        name: 'Ada Lovelace',
+        address: {
+          line1: '',
+          line2: '1 Algorithm Way',
+          city: 'London',
+          country: 'GB',
+          postal_code: 'SW1A 1AA',
+        },
+      },
+    ],
+    [
+      'Amazon aliases',
+      {
+        name: 'Ada Lovelace',
+        addressLine1: '1 Algorithm Way',
+        city: 'London',
+        countryCode: 'GB',
+        postalCode: 'SW1A 1AA',
+      },
+    ],
+    ['empty wallet address', {}],
+  ])('preserves Amazon address compatibility for %s', async (_label, shippingAddress) => {
+    const block = loadStripeExpressCheckoutBlock({ separateWalletInstances: true });
+    await renderAndMount(block);
+    const event = createConfirmEvent({ shippingAddress });
+    await getHandler(block, 'confirm', 'amazon')(event);
+
+    expect(block.stripeInstance.createConfirmationToken).toHaveBeenCalledWith(
+      expect.objectContaining({
+        elements: block.amazonElements,
+        params: expect.objectContaining({
+          shipping: expect.objectContaining({
+            address: expect.objectContaining({ line1: '1 Algorithm Way', country: 'GB' }),
+          }),
+        }),
+      }),
+    );
+    expect(block.mocks.checkoutApi.setShippingAddress).not.toHaveBeenCalled();
+    expect(event.paymentFailed).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,6 @@
 # Stripe Express Checkout EDS block
 
-This experimental EDS block renders Stripe's Express Checkout Element for the
+This EDS integration renders Stripe's Express Checkout Element for the
 Adobe Commerce `oope_stripe` payment method. It collects wallet details with a
 Confirmation Token, creates a PaymentIntent through the existing App Builder
 action, confirms the PaymentIntent in Stripe.js, and places the Adobe Commerce
@@ -26,6 +26,38 @@ order only after payment confirmation succeeds.
 No raw card or wallet credentials pass through this block or Adobe Commerce.
 Stripe.js remains loaded directly from `https://js.stripe.com/v3/`.
 
+## Module structure
+
+The public entry point remains `stripe-express-checkout.js`. Checkout imports and
+the exported `decorate`, `renderStripePaymentMethod`, `handleStripePayment`, and
+`validateStripePayment` contracts are unchanged.
+
+- `stripe-express-checkout.js` coordinates configuration, wallet events,
+  confirmation, order placement, and the checkout slot.
+- `amazon-pay.js` owns Amazon eligibility, payment-method configuration, and
+  compatibility with Amazon address fields and street-line fallbacks.
+- `wallets.js` defines the payment-only wallet group and the ordered wallet
+  descriptors. Each descriptor owns its container, Elements instance, mounted
+  element, and availability. Shared lifecycle code consumes these descriptors.
+- `addresses.js` reads Commerce addresses and converts wallet, Commerce, and
+  Confirmation Token address shapes. Its wallet conversion delegates to the
+  Amazon compatibility normalizer so field precedence stays consistent.
+- `shipping.js` owns currency conversion, shipping rates, amount calculations,
+  and synchronization through the Cart and Checkout Drop-ins.
+- `stripe-api.js` loads Stripe.js and calls the existing App Builder and Commerce
+  payment APIs.
+- `checkout-view.js` controls inline alerts, wallet visibility, and the checkout
+  blocking overlay.
+- `checkout-state.js` holds the single checkout surface's shared runtime state.
+  It has the same page lifetime as the previous module-level variables.
+- `constants.js` groups protocol values, event names, DOM hooks, storage keys,
+  customer messages, and diagnostics. Amazon-specific values stay in its adapter.
+
+Modules use native ES imports with no additional runtime dependencies or build
+step. Keep shipping ownership and the confirmation sequence shared when adding
+wallet policies. A wallet click must resolve before asynchronous Commerce work;
+changing that ordering can prevent the payment sheet from opening.
+
 ## Folder installation
 
 Copy this directory to the EDS storefront as:
@@ -33,8 +65,16 @@ Copy this directory to the EDS storefront as:
 ```text
 blocks/express-checkout/
   README.md
+  addresses.js
+  amazon-pay.js
+  checkout-state.js
+  checkout-view.js
+  constants.js
+  shipping.js
+  stripe-api.js
   stripe-express-checkout.css
   stripe-express-checkout.js
+  wallets.js
 ```
 
 The storefront must already provide these Drop-ins:
@@ -146,39 +186,50 @@ PaymentIntent requests from authenticated storefronts forward the
 
 ## Shipping behavior
 
-- Physical carts always mount with `shippingAddressRequired: true`. Amazon Pay's
-  JS-only `onInitCheckout` uses PayAndShip and fails immediately
-  (`originUrl is not present`, `ResponseNotReceivedError`) if the wallet skips
-  shipping because Magento already has an address.
+- Link, Apple Pay, Google Pay, PayPal, and Klarna mount in a separate
+  Express Checkout Element with `shippingAddressRequired: false` and
+  `amazonPay: 'never'`. Those wallets show email/phone/payment only.
+- Amazon Pay mounts in a second Element with `shippingAddressRequired: true`.
+  Amazon's JS-only `onInitCheckout` is PayAndShip and fails with
+  `No address present in onInit callback` if shipping is off. Stripe does not
+  allow changing `shippingAddressRequired` on click.
+- Amazon Pay still shows Amazon's own address book. That cannot be seeded with
+  the Magento form address. Magento is not overwritten when it already has a
+  complete address.
 - Virtual carts do not collect shipping.
-- Magento rates are passed as the wallet's default `shippingRates`. The default
-  rate is included in the amount when Elements is created, including when
-  Magento already selected a method but the cart drop-in total is still the
-  item subtotal. Wallets that pre-authorize on open (Klarna, PayPal) need that
-  amount before the sheet starts.
-- The wallet `click` event always resolves immediately with `shippingRates` so
-  it stays within Stripe's one-second Amazon Pay callback requirement.
-- A complete `shippingaddresschange` address is first persisted with
-  `setShippingAddress()`. The block then refreshes the cart and returns the
-  authoritative Commerce rates to the wallet. The first returned rate is also
-  selected immediately and Elements receives the refreshed Commerce total
-  before wallet authorization.
+- Magento rates are passed as the wallet's default `shippingRates` and are
+  included in the Elements amount. Wallets that pre-authorize on open (Klarna,
+  PayPal) need that amount before the sheet starts. The selected Magento
+  shipping option is used, not the first available rate. When Magento's cart
+  total still has a cheaper default rate, that included amount is replaced with
+  the selected option and the selected method is persisted before Link
+  authorizes.
+- Amazon Pay `click` resolves immediately with `shippingRates` so it stays
+  within Stripe's one-second Amazon callback requirement. Link and the other
+  Magento-owned wallets also resolve the click immediately; Magento shipping
+  persist runs after the sheet is already opening.
+- Confirm requires a complete Magento shipping address and selected method.
+  If those are missing, the attempt fails and asks the shopper to finish
+  shipping on the checkout page.
+- Link confirm does not collect shipping in the wallet. The Magento shipping
+  address is attached to `createConfirmationToken()`, and a complete Magento
+  shipping address also satisfies billing when Commerce is using
+  bill-to-shipping. Amount mismatches are reported as a generic payment
+  failure, not as an invalid shipping address.
+- A complete `shippingaddresschange` address is persisted only when Magento
+  does not already have a complete shipping address. Otherwise the wallet
+  address is used only to `estimateShippingMethods()` for the sheet.
 - Browsers can redact `shippingaddresschange` addresses. A redacted address is
   used only with `estimateShippingMethods()` and is never persisted as if it
-  were complete. The full address supplied by `confirm` is persisted before
-  payment.
+  were complete.
 - Wallet payloads are normalized before persist. Amazon Pay may flatten fields,
   use Amazon address keys, or put the street in `line2` with an empty `line1`.
   Incomplete Amazon billing falls back to shipping (`sameAsShipping`) rather
   than failing confirm. If `confirm` is still short, the Confirmation Token
   address is used after `elements.submit()`.
-- If the wallet supplies a complete shipping address, it is persisted even when
-  Magento already had one. Incomplete Amazon billing still falls back to
-  shipping (`sameAsShipping`).
-- `shippingratechange` immediately calls `setShippingMethods()` when Commerce
-  has a complete address or the complete wallet address was just persisted.
-  Otherwise, the selection is retained and persisted immediately after the
-  full address becomes available on confirm.
+- `shippingratechange` persists a method only when the wallet just wrote the
+  Magento address. If Magento already had a complete address and method, the
+  wallet rate is previewed and left on the sheet.
 - After shipping changes, `refreshCart()` supplies the authoritative amount.
   If the amount changes only after wallet authorization, the current attempt is
   failed and Elements is updated so the shopper can authorize the corrected
@@ -221,6 +272,12 @@ cover deferred Elements, automatic and manual capture, Confirmation Tokens,
 guest and authenticated carts, shipping events, remounting, the blocking
 overlay, currency conversion, checkout validation, status feedback, and
 customer-facing load errors.
+
+The suite also covers distinct Elements instances for Amazon and the payment-only
+wallet group, switching from Amazon to Link, updating both wallet totals, isolated
+load failures, reset/remount cleanup, virtual carts, and Amazon address aliases.
+The VM harness loads the local module graph and mocks only the external SDKs and
+browser APIs; the extracted production modules execute in the tests.
 
 Run them from the storefront root:
 

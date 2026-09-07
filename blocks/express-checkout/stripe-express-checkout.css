@@ -21,6 +21,10 @@
   opacity: 0;
 }
 
+.stripe-express-checkout .stripe-express-checkout-amazon {
+  margin-top: var(--spacing-small);
+}
+
 .stripe-express-checkout-hidden {
   display: none;
 }

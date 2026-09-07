@@ -1,1136 +1,301 @@
 /* global Stripe */
 
-import { events } from '@dropins/tools/event-bus.js';
-import * as cartApi from '@dropins/storefront-cart/api.js';
-import * as checkoutApi from '@dropins/storefront-checkout/api.js';
 import * as orderApi from '@dropins/storefront-order/api.js';
+import { events } from '@dropins/tools/event-bus.js';
 import {
-  Icon,
-  InLineAlert,
-  provider as UI,
-} from '@dropins/tools/components.js';
-import { h } from '@dropins/tools/preact.js';
-
+  STATUS,
+  STYLESHEET_URL,
+  DIAGNOSTICS,
+  STRIPE,
+  MESSAGES,
+  SUPPORTED_PAYMENT_STATUSES,
+  EVENTS,
+  HIDDEN_CLASS,
+  LOADING_CLASS,
+  BLOCK_CLASS,
+  HEADING_CLASS,
+  STATUS_CLASS,
+  SEPARATOR_CLASS,
+} from './constants.js';
 import { loadCSS } from '../../scripts/aem.js';
+import { state } from './checkout-state.js';
+import {
+  isCompleteBillingAddress,
+  getCheckoutPhone,
+  isVirtualCart,
+  hasRequiredMagentoShipping,
+  toStripeBillingDetails,
+  toStripeShippingDetails,
+  toStripeShippingDetailsFromCommerce,
+  getCheckoutShippingAddress,
+  cartNeedsWalletAddresses,
+  toWalletAddress,
+} from './addresses.js';
+import {
+  syncMagentoShippingRates,
+  getCartMoney,
+  updateMountedElementsAmount,
+  ensureSelectedShippingOnCart,
+  getWalletElementsAmount,
+  synchronizeWalletDetails,
+  handleShippingAddressChange,
+  handleShippingRateChange,
+} from './shipping.js';
+import {
+  getActiveCartId,
+  createPaymentIntent,
+  persistStripePaymentMethod,
+  isStripePaymentMethodAvailable,
+  loadStripeJs,
+  parseRuntimeConfig,
+  fetchInitParams,
+} from './stripe-api.js';
+import { wallets, primaryWallet } from './wallets.js';
+import {
+  setCheckoutBlocked,
+  setPaymentStatus,
+  clearPaymentStatus,
+  syncWalletVisibility,
+  hideExpressCheckout,
+} from './checkout-view.js';
 
-loadCSS('/blocks/express-checkout/stripe-express-checkout.css');
+loadCSS(STYLESHEET_URL);
 
-const STRIPE_PAYMENT_METHOD_CODE = 'oope_stripe';
-const ELEMENT_CONTAINER_ID = 'stripe-express-checkout-element';
-const BLOCKED_CLASS = 'stripe-express-checkout-blocked';
-const HIDDEN_CLASS = 'stripe-express-checkout-hidden';
-const LOADING_CLASS = 'stripe-express-checkout-loading';
-const STRIPE_REQUEST_TIMEOUT = 15000;
-const STRIPE_LOADING_PROMISE_KEY = '__stripeJsLoadingPromise';
-const SUPPORTED_PAYMENT_STATUSES = new Set([
-  'processing',
-  'requires_capture',
-  'succeeded',
-]);
-const STRIPE_ZERO_DECIMAL_CURRENCIES = new Set([
-  'BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA',
-  'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF',
-]);
-const STRIPE_THREE_DECIMAL_CURRENCIES = new Set([
-  'BHD', 'JOD', 'KWD', 'OMR', 'TND',
-]);
+// Wallet configuration
 
-let stripeLoadingPromise = null;
-let stripe = null;
-let elements = null;
-let expressCheckoutElement = null;
-let checkoutData = null;
-let cartData = null;
-let initParams = null;
-let runtimeConfig = null;
-let blockContainer = null;
-let mountContainer = null;
-let statusContainer = null;
-let statusAlert = null;
-let mountInProgress = false;
-let modalOpen = false;
-let confirmationInProgress = false;
-let activeConfirmation = null;
-let mountedConfigurationKey = null;
-let currentAmount = null;
-let currentCurrency = null;
-let currentShippingRates = [];
-let shippingMethodsByRateId = new Map();
-let pendingShippingMethod = null;
-let confirmedCartId = null;
-let elementLoadFailed = false;
-let walletShippingRequired = false;
-let walletShippingAddressPersisted = false;
-let walletReauthorizationRequired = false;
-let validateCheckout = null;
-
-const PAYMENT_STATUS = Object.freeze({
-  info: {
-    heading: 'Payment processing',
-    icon: 'InfoFilled',
-  },
-  success: {
-    heading: 'Payment successful',
-    icon: 'CheckWithCircle',
-    type: 'success',
-  },
-  error: {
-    heading: 'Payment failed',
-    icon: 'PaymentError',
-    type: 'error',
-  },
-});
-
-function clearPaymentStatus() {
-  statusAlert?.remove();
-  statusAlert = null;
-  statusContainer?.replaceChildren();
-}
-
-async function setPaymentStatus(message, status = 'info') {
-  if (!statusContainer) return null;
-
-  const config = PAYMENT_STATUS[status] || PAYMENT_STATUS.info;
-  clearPaymentStatus();
-  try {
-    statusAlert = await UI.render(InLineAlert, {
-      heading: config.heading,
-      description: message,
-      ...(config.type ? { type: config.type } : {}),
-      variant: 'primary',
-      icon: h(Icon, { source: config.icon }),
-      'aria-live': status === 'error' ? 'assertive' : 'polite',
-      role: status === 'error' ? 'alert' : 'status',
-    })(statusContainer);
-  } catch (error) {
-    console.warn('Unable to render Express Checkout payment status.', error);
-  }
-
-  return statusAlert;
-}
-
-async function fetchStripeResource(resource, options = {}) {
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), STRIPE_REQUEST_TIMEOUT);
-
-  try {
-    return await fetch(resource, { ...options, signal: controller.signal });
-  } catch (error) {
-    if (error.name === 'AbortError') {
-      throw new Error('Stripe did not respond in time. Please try again.');
-    }
-    throw error;
-  } finally {
-    window.clearTimeout(timeoutId);
-  }
-}
-
-function loadStripeJs() {
-  if (stripeLoadingPromise) {
-    return stripeLoadingPromise;
-  }
-
-  if (window[STRIPE_LOADING_PROMISE_KEY]) {
-    stripeLoadingPromise = window[STRIPE_LOADING_PROMISE_KEY];
-    return stripeLoadingPromise;
-  }
-
-  if (typeof Stripe !== 'undefined') {
-    return Promise.resolve();
-  }
-
-  stripeLoadingPromise = new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = 'https://js.stripe.com/v3/';
-    const timeoutId = window.setTimeout(() => {
-      stripeLoadingPromise = null;
-      window[STRIPE_LOADING_PROMISE_KEY] = null;
-      script.remove();
-      reject(new Error('Stripe.js did not load in time.'));
-    }, STRIPE_REQUEST_TIMEOUT);
-    script.onload = () => {
-      window.clearTimeout(timeoutId);
-      resolve();
-    };
-    script.onerror = () => {
-      window.clearTimeout(timeoutId);
-      stripeLoadingPromise = null;
-      window[STRIPE_LOADING_PROMISE_KEY] = null;
-      reject(new Error('Stripe.js failed to load.'));
-    };
-    document.head.appendChild(script);
-  });
-  window[STRIPE_LOADING_PROMISE_KEY] = stripeLoadingPromise;
-
-  return stripeLoadingPromise;
-}
-
-function getCustomerTokenFromCookie() {
-  const match = document.cookie.match(
-    /(?:^|;\s*)auth_dropin_user_token=([^;]+)/,
-  );
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
-function getActiveCartId(preferredCartId = null) {
-  return (
-    preferredCartId
-    || cartData?.id
-    || checkoutData?.id
-    || events.lastPayload('cart/updated')?.id
-    || events.lastPayload('cart/initialized')?.id
-    || window.sessionStorage.getItem('DROPINS_CART_ID')
-    || null
-  );
-}
-
-function getStripePaymentMethod() {
-  const paymentMethods = [
-    checkoutData?.selectedPaymentMethod,
-    ...(checkoutData?.availablePaymentMethods || []),
-  ].filter(Boolean);
-
-  return paymentMethods.find(
-    (method) => method.code === STRIPE_PAYMENT_METHOD_CODE,
-  );
-}
-
-function isStripePaymentMethodAvailable() {
-  return Boolean(getStripePaymentMethod());
-}
-
-function parseRuntimeConfig() {
-  const backendIntegrationUrl = getStripePaymentMethod()?.oope_payment_method_config
-    ?.backend_integration_url;
-
-  if (!backendIntegrationUrl) {
-    throw new Error('Stripe runtime configuration is unavailable.');
-  }
-
-  const parsedConfig = JSON.parse(backendIntegrationUrl);
-  if (!parsedConfig.getInitParamsUrl || !parsedConfig.createPaymentIntentUrl) {
-    throw new Error('Stripe runtime configuration is incomplete.');
-  }
-
-  return parsedConfig;
-}
-
-function getCheckoutShippingAddress() {
-  return (
-    checkoutData?.shippingAddress
-    || checkoutData?.shippingAddresses?.[0]
-    || checkoutData?.shipping_address
-    || checkoutData?.shipping_addresses?.[0]
-    || null
-  );
-}
-
-function getCheckoutBillingAddress() {
-  return checkoutData?.billingAddress || checkoutData?.billing_address || null;
-}
-
-function getAddressCountry(address) {
-  return (
-    address?.country?.code
-    || address?.country?.value
-    || address?.countryCode
-    || address?.country_code
-    || ''
-  );
-}
-
-function getAddressPostcode(address) {
-  return address?.postCode || address?.postcode || address?.postal_code || '';
-}
-
-function getAddressStreet(address) {
-  if (Array.isArray(address?.street)) {
-    return address.street;
-  }
-
-  return [address?.line1, address?.line2].filter(Boolean);
-}
-
-function isCompleteCommerceAddress(address) {
-  const street = getAddressStreet(address);
-  return Boolean(
-    (address?.firstName || address?.firstname)
-    && (address?.lastName || address?.lastname)
-    && street[0]
-    && address?.city
-    && getAddressCountry(address)
-    && getAddressPostcode(address),
-  );
-}
-
-function getSelectedShippingMethod(address = getCheckoutShippingAddress()) {
-  return (
-    address?.selectedShippingMethod || address?.selected_shipping_method || null
-  );
-}
-
-function isVirtualCart() {
-  return Boolean(checkoutData?.isVirtual || cartData?.isVirtual);
-}
-
-function shouldCollectShipping() {
-  // Amazon Pay's JS-only onInitCheckout uses PayAndShip and requires a
-  // merchant callback with shipping rates. Skipping wallet shipping after
-  // Magento already has an address leaves that callback empty (no originUrl).
-  return !isVirtualCart();
-}
-
-function isCompleteBillingAddress() {
-  return isCompleteCommerceAddress(getCheckoutBillingAddress());
-}
-
-function getStripeFractionDigits(currency) {
-  const normalizedCurrency = String(currency || '').toUpperCase();
-  if (STRIPE_ZERO_DECIMAL_CURRENCIES.has(normalizedCurrency)) return 0;
-  if (STRIPE_THREE_DECIMAL_CURRENCIES.has(normalizedCurrency)) return 3;
-  return 2;
-}
-
-function toStripeMinorUnits(value, currency) {
-  const numericValue = Number(value);
-  if (!Number.isFinite(numericValue)) {
-    throw new Error('A Stripe amount is unavailable.');
-  }
-
-  return Math.round(numericValue * (10 ** getStripeFractionDigits(currency)));
-}
-
-function getCartMoney(source = cartData) {
-  const candidates = [
-    source?.total?.includingTax,
-    source?.total?.excludingTax,
-    source?.prices?.grandTotal,
-    source?.prices?.grand_total,
-    checkoutData?.prices?.grandTotal,
-    checkoutData?.prices?.grand_total,
-  ];
-  const money = candidates.find(
-    (candidate) => candidate
-      && Number.isFinite(Number(candidate.value))
-      && candidate.currency,
-  );
-
-  if (!money) {
-    throw new Error('The authoritative cart amount is unavailable.');
-  }
-
-  return {
-    amount: toStripeMinorUnits(money.value, money.currency),
-    currency: String(money.currency).toLowerCase(),
-  };
-}
-
-function getShippingMethodCarrierCode(method) {
-  return method?.carrier?.code || method?.carrierCode || method?.carrier_code;
-}
-
-function getShippingMethodCode(method) {
-  return method?.code || method?.methodCode || method?.method_code;
-}
-
-function getShippingMethodRateId(method) {
-  return `${encodeURIComponent(getShippingMethodCarrierCode(method))}:${encodeURIComponent(getShippingMethodCode(method))}`;
-}
-
-function toStripeShippingRate(method) {
-  const carrierCode = getShippingMethodCarrierCode(method);
-  const methodCode = getShippingMethodCode(method);
-  const amount = method?.amount || method?.amountInclTax;
-
-  if (!carrierCode || !methodCode || !amount) {
-    return null;
-  }
-
-  const id = getShippingMethodRateId(method);
-  shippingMethodsByRateId.set(id, method);
-
-  return {
-    id,
-    displayName: [method?.carrier?.title, method?.title]
-      .filter(Boolean)
-      .join(' - '),
-    amount: toStripeMinorUnits(amount.value, amount.currency),
-  };
-}
-
-function setAvailableShippingMethods(methods = []) {
-  shippingMethodsByRateId = new Map();
-  currentShippingRates = methods.map(toStripeShippingRate).filter(Boolean);
-  return currentShippingRates;
-}
-
-function getSelectedShippingAmountCents() {
-  const method = getSelectedShippingMethod();
-  const amount = method?.amount || method?.amountInclTax;
-  const value = Number(amount?.value);
-  return Number.isFinite(value)
-    ? toStripeMinorUnits(value, amount.currency)
-    : 0;
-}
-
-function getCartPriceCents(price) {
-  const value = Number(price?.value);
-  if (!Number.isFinite(value) || !price?.currency) {
-    return null;
-  }
-  return toStripeMinorUnits(value, price.currency);
-}
-
-function getIncludedShippingCents(money = getCartMoney()) {
-  const cartShippingCents = getCartPriceCents(cartData?.shipping);
-  if (cartShippingCents > 0) {
-    return cartShippingCents;
-  }
-
-  const selectedCents = getSelectedShippingAmountCents();
-  const subtotalCents = getCartPriceCents(
-    cartData?.subtotal?.includingTax || cartData?.subtotal?.excludingTax,
-  );
-
-  // Magento can show a selected method while cart.total is still the item
-  // subtotal. Klarna pre-authorizes on open, so only subtract shipping when
-  // the cart total already includes it.
-  if (selectedCents > 0 && subtotalCents != null) {
-    return money.amount - subtotalCents >= selectedCents - 1 ? selectedCents : 0;
-  }
-
-  return selectedCents;
-}
-
-function getAmountWithShippingRate(shippingRate) {
-  const money = getCartMoney();
-  const rateAmount = Number(shippingRate?.amount);
-  const shippingCents = Number.isFinite(rateAmount) ? rateAmount : 0;
-  return money.amount - getIncludedShippingCents(money) + shippingCents;
-}
-
-function getWalletElementsAmount() {
-  const money = getCartMoney();
-  if (shouldCollectShipping() && currentShippingRates[0]) {
-    return {
-      amount: getAmountWithShippingRate(currentShippingRates[0]),
-      currency: money.currency,
-    };
-  }
-  return money;
-}
-
-async function previewWalletAmount(shippingRate) {
-  if (!elements || !shippingRate) {
-    return currentAmount;
-  }
-  const previewAmount = getAmountWithShippingRate(shippingRate);
-  if (previewAmount === currentAmount) {
-    return previewAmount;
-  }
-  await elements.update({ amount: previewAmount });
-  currentAmount = previewAmount;
-  return previewAmount;
-}
-
-function getAvailableShippingMethods() {
-  const shippingAddress = getCheckoutShippingAddress();
-  return (
-    shippingAddress?.availableShippingMethods
-    || shippingAddress?.available_shipping_methods
-    || []
-  );
-}
-
+/**
+ * Build deferred Elements options from cart totals and backend payment settings.
+ * @returns {Object}
+ */
 function getElementsOptions() {
   const money = getCartMoney();
-  const paymentMethodOptions = initParams?.elementsOptions?.paymentMethodOptions;
-
+  const paymentMethodOptions = state.initParams?.elementsOptions?.paymentMethodOptions;
   return {
     mode: 'payment',
     amount: money.amount,
     currency: money.currency,
-    ...(paymentMethodOptions ? { paymentMethodOptions } : {}),
+    ...(paymentMethodOptions
+      ? {
+        paymentMethodOptions,
+      }
+      : {}),
   };
 }
 
-function getExpressCheckoutOptions() {
-  const collectShipping = shouldCollectShipping();
-  const options = {
-    billingAddressRequired: !isCompleteBillingAddress(),
-    emailRequired: !checkoutData?.email,
-    phoneNumberRequired: collectShipping,
-    shippingAddressRequired: collectShipping,
-  };
-
-  if (collectShipping) {
-    options.shippingRates = setAvailableShippingMethods(
-      getAvailableShippingMethods(),
-    );
-  } else {
-    setAvailableShippingMethods([]);
+/**
+ * Supply rates only for a wallet configured to collect shipping.
+ * @param {boolean} collectShipping Whether this wallet collects shipping.
+ * @returns {Object}
+ */
+function getClickResolvePayload(collectShipping) {
+  if (!collectShipping) {
+    return {};
   }
-
-  return options;
+  return {
+    shippingRates: state.currentShippingRates,
+  };
 }
 
+/**
+ * Request only contact and billing fields absent from checkout state.
+ * @returns {Object}
+ */
+function getSharedExpressCheckoutFields() {
+  return {
+    billingAddressRequired: !isCompleteBillingAddress(),
+    emailRequired: !state.checkoutData?.email,
+    phoneNumberRequired: !getCheckoutPhone(),
+  };
+}
+
+/**
+ * Identify changes that require remounting the wallet elements.
+ * @returns {string}
+ */
 function getConfigurationKey() {
-  const options = getExpressCheckoutOptions();
+  syncMagentoShippingRates();
+  const options = getSharedExpressCheckoutFields();
   return JSON.stringify({
     cartId: getActiveCartId(),
     billingAddressRequired: options.billingAddressRequired,
     emailRequired: options.emailRequired,
     phoneNumberRequired: options.phoneNumberRequired,
-    shippingAddressRequired: options.shippingAddressRequired,
+    shippingWallet: wallets.some(
+      (wallet) => wallet.collectsShipping && wallet.isEnabled(isVirtualCart()),
+    ),
   });
 }
 
-function getBlockingTarget() {
-  return (
-    mountContainer?.closest?.('.commerce-checkout')
-    || mountContainer?.closest?.('form')
-    || document.body
-  );
-}
-
-function setCheckoutBlocked(blocked) {
-  const target = getBlockingTarget();
-  if (!target) {
+/**
+ * Destroy an Stripe element without interrupting checkout cleanup.
+ * @param {Object} walletElement Mounted Stripe Express Checkout Element.
+ * @returns {void}
+ */
+function destroyWalletElement(walletElement) {
+  if (!walletElement) {
     return;
   }
-
-  target.classList.toggle(BLOCKED_CLASS, blocked);
-  if (blocked) {
-    target.setAttribute('aria-busy', 'true');
-  } else {
-    target.removeAttribute('aria-busy');
+  try {
+    walletElement.destroy();
+  } catch (error) {
+    console.warn(DIAGNOSTICS.ELEMENT_DESTROY_FAILED, error);
   }
 }
 
-function hideExpressCheckout(hideBlock = true) {
-  if (!mountContainer) {
-    return;
-  }
-
-  mountContainer.classList.add(HIDDEN_CLASS);
-  mountContainer.classList.remove(LOADING_CLASS);
-  mountContainer.hidden = true;
-  if (blockContainer) {
-    blockContainer.hidden = hideBlock;
-  }
-}
-
-function showExpressCheckout() {
-  if (!mountContainer || elementLoadFailed) {
-    return;
-  }
-
-  mountContainer.classList.remove(HIDDEN_CLASS);
-  mountContainer.classList.remove(LOADING_CLASS);
-  mountContainer.hidden = false;
-  if (blockContainer) {
-    blockContainer.hidden = false;
-  }
-}
-
+/**
+ * Dispose of mounted wallets and reset the per-mount payment state.
+ * @returns {void}
+ */
 function destroyExpressCheckout() {
-  if (expressCheckoutElement) {
-    try {
-      expressCheckoutElement.destroy();
-    } catch (error) {
-      console.warn('Unable to destroy Stripe Express Checkout Element.', error);
-    }
-  }
-
-  expressCheckoutElement = null;
-  elements = null;
-  stripe = null;
-  initParams = null;
-  runtimeConfig = null;
-  mountedConfigurationKey = null;
-  currentAmount = null;
-  currentCurrency = null;
-  currentShippingRates = [];
-  shippingMethodsByRateId = new Map();
-  pendingShippingMethod = null;
-  elementLoadFailed = false;
-  walletShippingRequired = false;
-  walletShippingAddressPersisted = false;
-  walletReauthorizationRequired = false;
-  modalOpen = false;
-  confirmationInProgress = false;
-  activeConfirmation = null;
+  wallets.forEach((wallet) => {
+    destroyWalletElement(wallet.element);
+    wallet.element = null;
+    wallet.elements = null;
+    wallet.available = false;
+  });
+  state.elements = null;
+  state.stripe = null;
+  state.initParams = null;
+  state.runtimeConfig = null;
+  state.mountedConfigurationKey = null;
+  state.currentAmount = null;
+  state.currentCurrency = null;
+  state.currentShippingRates = [];
+  state.shippingMethodsByRateId = new Map();
+  state.pendingShippingMethod = null;
+  state.walletShippingRequired = false;
+  state.walletShippingAddressPersisted = false;
+  state.walletReauthorizationRequired = false;
+  state.modalOpen = false;
+  state.confirmationInProgress = false;
+  state.activeConfirmation = null;
   setCheckoutBlocked(false);
 }
 
-async function fetchInitParams(endpoint) {
-  const response = await fetchStripeResource(endpoint);
-  const data = await response.json().catch(() => null);
-
-  if (!response.ok || !data?.publishableKey) {
-    throw new Error('Stripe initialization parameters are unavailable.');
-  }
-
-  return data;
-}
-
-function getPaymentIntentHeaders() {
-  const headers = { 'Content-Type': 'application/json' };
-  const customerToken = getCustomerTokenFromCookie();
-  if (customerToken) {
-    headers.Authorization = `Bearer ${customerToken}`;
-  }
-
-  headers.Store = window.localStorage.getItem('store-view') || 'default';
-  return headers;
-}
-
-async function createPaymentIntent(confirmationTokenId) {
-  const cartId = getActiveCartId();
-  const selectedStore = window.localStorage.getItem('store-view') || 'default';
-  const response = await fetchStripeResource(runtimeConfig.createPaymentIntentUrl, {
-    method: 'POST',
-    headers: getPaymentIntentHeaders(),
-    body: JSON.stringify({
-      cartId,
-      cartFullName: getCommerceCustomerName(),
-      confirmationTokenId,
-      storeCode: selectedStore,
-    }),
-  });
-  const data = await response.json().catch(() => null);
-
-  if (!response.ok || !data?.client_secret) {
-    throw new Error(data?.error || data?.message || 'PaymentIntent failed.');
-  }
-
-  return data;
-}
-
-function splitCustomerName(name) {
-  const parts = String(name || '')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-
-  if (parts.length < 2) {
-    return null;
-  }
-
-  return {
-    firstName: parts.shift(),
-    lastName: parts.join(' '),
-  };
-}
-
-function getCommerceCustomerName() {
-  const billingAddress = getCheckoutBillingAddress();
-  const shippingAddress = getCheckoutShippingAddress();
-  const firstName = billingAddress?.firstName
-    || billingAddress?.firstname
-    || shippingAddress?.firstName
-    || shippingAddress?.firstname
-    || '';
-  const lastName = billingAddress?.lastName
-    || billingAddress?.lastname
-    || shippingAddress?.lastName
-    || shippingAddress?.lastname
-    || '';
-
-  return `${firstName} ${lastName}`.trim();
-}
-
-const readWalletValue = (...values) => {
-  const normalized = values
-    .map((value) => String(value || '').trim())
-    .find(Boolean);
-  return normalized || '';
-};
+// Payment confirmation
 
 /**
- * Normalize ECE / Amazon Pay address payloads onto Stripe's `{ name, address }` shape.
- * Confirm events nest `address`; some wallets flatten fields or use Amazon keys.
- * Amazon Pay DE billing often leaves `line1` empty and puts the street in `line2`.
+ * Report a failure to Stripe when the wallet event supports it.
+ * @param {Object} event Stripe Express Checkout event.
+ * @param {string} [reason] Stripe payment failure reason.
+ * @returns {void}
  */
-function toWalletAddress(source) {
-  if (!source) {
-    return null;
-  }
-
-  const nested = source.address && typeof source.address === 'object'
-    ? source.address
-    : null;
-  const streetLine1 = readWalletValue(
-    nested?.line1,
-    nested?.addressLine1,
-    source.line1,
-    source.addressLine1,
-  );
-  const streetLine2 = readWalletValue(
-    nested?.line2,
-    nested?.addressLine2,
-    source.line2,
-    source.addressLine2,
-  );
-  const address = {
-    line1: streetLine1 || streetLine2,
-    line2: streetLine1 ? streetLine2 || undefined : undefined,
-    city: readWalletValue(nested?.city, source.city),
-    state:
-      readWalletValue(
-        nested?.state,
-        nested?.stateOrRegion,
-        source.state,
-        source.stateOrRegion,
-      ) || undefined,
-    country: readWalletValue(
-      nested?.country,
-      nested?.countryCode,
-      source.country,
-      source.countryCode,
-    ),
-    postal_code: readWalletValue(
-      nested?.postal_code,
-      nested?.postalCode,
-      source.postal_code,
-      source.postalCode,
-    ),
-  };
-  const name = readWalletValue(source.name, nested?.name);
-  const phone = readWalletValue(
-    source.phone,
-    source.phoneNumber,
-    nested?.phone,
-    nested?.phoneNumber,
-  ) || undefined;
-
-  if (
-    !name
-    && !address.line1
-    && !address.city
-    && !address.country
-    && !address.postal_code
-  ) {
-    return null;
-  }
-
-  return { name, phone, address };
-}
-
-function isCompleteWalletAddress(walletAddress) {
-  const address = walletAddress?.address;
-  return Boolean(
-    walletAddress?.name
-      && address?.line1
-      && address?.city
-      && address?.country
-      && address?.postal_code,
-  );
-}
-
-const firstCompleteWallet = (...wallets) => wallets
-  .find((wallet) => isCompleteWalletAddress(wallet)) || null;
-
-function cartNeedsWalletAddresses() {
-  return (
-    (walletShippingRequired
-      && !isCompleteCommerceAddress(getCheckoutShippingAddress()))
-    || !isCompleteBillingAddress()
-  );
-}
-
-function toCommerceAddress(walletAddress, phone) {
-  const normalized = toWalletAddress(walletAddress);
-  const name = splitCustomerName(normalized?.name);
-  if (!name || !isCompleteWalletAddress(normalized)) {
-    throw new Error('The wallet address is incomplete.');
-  }
-
-  const { address } = normalized;
-  const telephone = phone || normalized.phone;
-  return {
-    firstName: name.firstName,
-    lastName: name.lastName,
-    street: [address.line1, address.line2].filter(Boolean),
-    city: address.city,
-    countryCode: address.country,
-    postcode: address.postal_code,
-    ...(address.state ? { region: address.state } : {}),
-    ...(telephone ? { telephone } : {}),
-  };
-}
-
-function toStripeBillingDetails(billingDetails) {
-  if (!billingDetails) {
-    return null;
-  }
-
-  const billingWallet = toWalletAddress(billingDetails);
-  return {
-    name: billingDetails.name,
-    email: billingDetails.email,
-    phone: billingDetails.phone,
-    ...(isCompleteWalletAddress(billingWallet)
-      ? { address: billingWallet.address }
-      : {}),
-  };
-}
-
-function toStripeShippingDetails(shippingAddress, phone) {
-  const walletAddress = toWalletAddress(shippingAddress);
-  if (!isCompleteWalletAddress(walletAddress)) {
-    return null;
-  }
-
-  return {
-    name: walletAddress.name,
-    phone: phone || walletAddress.phone || null,
-    address: walletAddress.address,
-  };
-}
-
-function getEstimateShippingInput(address) {
-  const normalized = toWalletAddress({ address })?.address || address;
-  return {
-    criteria: {
-      country_code: normalized.country,
-      ...(normalized.state ? { region_name: normalized.state } : {}),
-      ...(normalized.postal_code ? { zip: normalized.postal_code } : {}),
-    },
-  };
-}
-
-function getShippingMethodInput(method) {
-  return {
-    carrierCode: getShippingMethodCarrierCode(method),
-    methodCode: getShippingMethodCode(method),
-  };
-}
-
-async function refreshAuthoritativeCart() {
-  const refreshedCart = await cartApi.refreshCart();
-  if (refreshedCart) {
-    cartData = refreshedCart;
-  }
-
-  const refreshedCheckout = await checkoutApi.getCart();
-  if (refreshedCheckout) {
-    checkoutData = {
-      ...checkoutData,
-      ...refreshedCheckout,
-      availablePaymentMethods:
-        refreshedCheckout.availablePaymentMethods
-        || checkoutData?.availablePaymentMethods,
-    };
-  }
-
-  return getCartMoney();
-}
-
-async function updateElementsAmountFromCart() {
-  const money = await refreshAuthoritativeCart();
-  if (money.currency !== currentCurrency) {
-    throw new Error('The cart currency changed during Express Checkout.');
-  }
-
-  if (money.amount !== currentAmount) {
-    await elements.update({ amount: money.amount });
-    currentAmount = money.amount;
-  }
-
-  return money;
-}
-
-async function handleShippingAddressChange(event) {
-  try {
-    let persistedCheckout = null;
-    const walletAddress = toWalletAddress({
-      name: event.name,
-      address: event.address,
-      phone: event.phone || event.phoneNumber,
-    });
-
-    if (isCompleteWalletAddress(walletAddress)) {
-      persistedCheckout = await checkoutApi.setShippingAddress({
-        address: toCommerceAddress(walletAddress, walletAddress.phone),
-      });
-      walletShippingAddressPersisted = true;
-      if (persistedCheckout) {
-        checkoutData = {
-          ...checkoutData,
-          ...persistedCheckout,
-          availablePaymentMethods:
-            persistedCheckout.availablePaymentMethods
-            || checkoutData?.availablePaymentMethods,
-        };
-      }
-    }
-
-    const persistedMethods = persistedCheckout
-      ? getAvailableShippingMethods()
-      : [];
-    let methods = persistedMethods;
-    if (methods.length === 0 && event.address) {
-      methods = (await checkoutApi.estimateShippingMethods(
-        getEstimateShippingInput(event.address),
-      )) || [];
-    }
-    const shippingRates = setAvailableShippingMethods(methods);
-    if (shippingRates[0]) {
-      [pendingShippingMethod] = methods;
-      if (walletShippingAddressPersisted) {
-        await checkoutApi.setShippingMethods([
-          getShippingMethodInput(pendingShippingMethod),
-        ]);
-        await updateElementsAmountFromCart();
-      } else {
-        await previewWalletAmount(shippingRates[0]);
-      }
-    }
-    event.resolve({ shippingRates });
-  } catch (error) {
-    console.warn('Unable to estimate wallet shipping methods.', error);
-    event.reject();
-  }
-}
-
-async function handleShippingRateChange(event) {
-  try {
-    const method = shippingMethodsByRateId.get(event.shippingRate?.id);
-    if (!method) {
-      event.reject();
-      return;
-    }
-
-    pendingShippingMethod = method;
-    if (
-      walletShippingAddressPersisted
-      || isCompleteCommerceAddress(getCheckoutShippingAddress())
-    ) {
-      await checkoutApi.setShippingMethods([getShippingMethodInput(method)]);
-      await updateElementsAmountFromCart();
-    } else {
-      await previewWalletAmount(event.shippingRate);
-    }
-
-    event.resolve({ shippingRates: currentShippingRates });
-  } catch (error) {
-    console.warn('Unable to persist the wallet shipping method.', error);
-    event.reject();
-  }
-}
-
-async function persistBillingAddress(walletAddress, phone) {
-  await checkoutApi.setBillingAddress({
-    address: toCommerceAddress(walletAddress, phone),
-  });
-}
-
-async function synchronizeWalletDetails(event, extraWallets = {}) {
-  const isGuest = checkoutData?.isGuest
-    ?? cartData?.isGuestCart
-    ?? !getCustomerTokenFromCookie();
-  const { billingDetails } = event;
-
-  if (isGuest && !checkoutData?.email && billingDetails?.email) {
-    await checkoutApi.setGuestEmailOnCart(billingDetails.email);
-    checkoutData = { ...checkoutData, email: billingDetails.email };
-  }
-
-  const magentoHasShipping = isCompleteCommerceAddress(
-    getCheckoutShippingAddress(),
-  );
-  const shippingWallet = walletShippingRequired
-    ? firstCompleteWallet(
-      extraWallets.shipping,
-      toWalletAddress(event.shippingAddress),
-      magentoHasShipping ? null : toWalletAddress(billingDetails),
-    )
-    : null;
-  const billingWallet = firstCompleteWallet(
-    extraWallets.billing,
-    toWalletAddress(billingDetails),
-    shippingWallet,
-  );
-  const phone = billingDetails?.phone || shippingWallet?.phone || billingWallet?.phone;
-
-  if (isCompleteWalletAddress(shippingWallet)) {
-    await checkoutApi.setShippingAddress({
-      address: toCommerceAddress(shippingWallet, phone),
-    });
-    walletShippingAddressPersisted = true;
-  }
-
-  const selectedMethod = walletShippingRequired
-    ? shippingMethodsByRateId.get(event.shippingRate?.id)
-      || pendingShippingMethod
-    : null;
-  if (
-    selectedMethod
-    && (walletShippingAddressPersisted
-      || isCompleteCommerceAddress(getCheckoutShippingAddress()))
-  ) {
-    await checkoutApi.setShippingMethods([
-      getShippingMethodInput(selectedMethod),
-    ]);
-  }
-
-  if (!isCompleteBillingAddress()) {
-    if (isCompleteWalletAddress(billingWallet)) {
-      await persistBillingAddress(billingWallet, phone);
-    } else if (
-      walletShippingAddressPersisted
-      || isCompleteCommerceAddress(getCheckoutShippingAddress())
-    ) {
-      await checkoutApi.setBillingAddress({ sameAsShipping: true });
-    }
-  }
-
-  return refreshAuthoritativeCart();
-}
-
-async function persistStripePaymentMethod(clientSecret) {
-  const stripePaymentMethod = getStripePaymentMethod() || {
-    code: STRIPE_PAYMENT_METHOD_CODE,
-    title: 'Stripe Payment Method',
-  };
-  const checkoutValues = events.lastPayload('checkout/values') || {};
-  events.emit('checkout/values', {
-    ...checkoutValues,
-    selectedPaymentMethod: stripePaymentMethod,
-  });
-
-  const updatedCheckout = await checkoutApi.setPaymentMethod({
-    code: STRIPE_PAYMENT_METHOD_CODE,
-    additional_data: [{ key: 'client_secret', value: clientSecret }],
-  });
-
-  if (updatedCheckout?.selectedPaymentMethod?.code !== STRIPE_PAYMENT_METHOD_CODE) {
-    throw new Error('Adobe Commerce did not select Stripe as the payment method.');
-  }
-
-  checkoutData = {
-    ...checkoutData,
-    ...updatedCheckout,
-    availablePaymentMethods:
-      updatedCheckout.availablePaymentMethods
-      || checkoutData?.availablePaymentMethods,
-  };
-  events.emit('checkout/values', {
-    ...(events.lastPayload('checkout/values') || {}),
-    selectedPaymentMethod: updatedCheckout.selectedPaymentMethod,
-  });
-
-  return updatedCheckout;
-}
-
-function notifyPaymentFailure(event, reason = 'fail') {
+function notifyPaymentFailure(event, reason = STRIPE.FAIL) {
   if (typeof event?.paymentFailed === 'function') {
-    event.paymentFailed({ reason });
+    event.paymentFailed({
+      reason,
+    });
   }
 }
 
+/**
+ * Require another authorization if refreshed totals differ from the wallet amount.
+ * @param {Object} event Stripe Express Checkout event.
+ * @returns {Promise<boolean>}
+ */
 async function syncAmountAfterWalletUpdate(event) {
   const money = getCartMoney();
-  if (
-    money.currency !== currentCurrency
-    || money.amount !== currentAmount
-  ) {
-    if (money.currency === currentCurrency) {
-      await elements.update({ amount: money.amount });
-      currentAmount = money.amount;
+  if (money.currency !== state.currentCurrency || money.amount !== state.currentAmount) {
+    if (money.currency === state.currentCurrency) {
+      await updateMountedElementsAmount(money.amount);
     }
-    walletReauthorizationRequired = true;
-    await setPaymentStatus(
-      'The order total changed. Please reopen your wallet and approve the updated total.',
-      'error',
-    );
-    notifyPaymentFailure(event, 'invalid_shipping_address');
+    state.walletReauthorizationRequired = true;
+    await setPaymentStatus(MESSAGES.TOTAL_CHANGED, STATUS.ERROR);
+    notifyPaymentFailure(event);
     return false;
   }
   return true;
 }
 
+/**
+ * Execute the validation, token, payment, and Commerce order sequence.
+ * @param {Object} event Stripe Express Checkout event.
+ * @returns {Promise<boolean>}
+ */
 async function runConfirmation(event) {
-  confirmationInProgress = true;
-  modalOpen = true;
+  state.confirmationInProgress = true;
+  state.modalOpen = true;
   setCheckoutBlocked(true);
-
   try {
-    await setPaymentStatus(
-      'We are processing your wallet details and payment.',
-    );
+    await setPaymentStatus(MESSAGES.PROCESSING);
     const cartId = getActiveCartId();
     if (!cartId) {
-      throw new Error('The active cart is unavailable.');
+      throw new Error(MESSAGES.CART_UNAVAILABLE);
     }
-
-    if (validateCheckout && !(await validateCheckout())) {
-      await setPaymentStatus(
-        'Please accept the terms and conditions, then try Express Checkout again.',
-        'error',
-      );
+    if (state.validateCheckout && !(await state.validateCheckout())) {
+      await setPaymentStatus(MESSAGES.TERMS_REQUIRED, STATUS.ERROR);
       notifyPaymentFailure(event);
       return false;
     }
-
-    if (walletReauthorizationRequired) {
-      await setPaymentStatus(
-        'The order total changed. Please reopen your wallet and approve the updated total.',
-        'error',
-      );
-      notifyPaymentFailure(event, 'invalid_shipping_address');
+    if (!hasRequiredMagentoShipping()) {
+      await setPaymentStatus(MESSAGES.SHIPPING_REQUIRED, STATUS.ERROR);
+      notifyPaymentFailure(event);
       return false;
     }
-
+    if (!state.walletShippingRequired) {
+      await ensureSelectedShippingOnCart();
+      const money = getWalletElementsAmount();
+      if (
+        money.currency === state.currentCurrency
+        && money.amount !== state.currentAmount
+      ) {
+        await updateMountedElementsAmount(money.amount);
+        state.walletReauthorizationRequired = true;
+      }
+    }
+    if (state.walletReauthorizationRequired) {
+      await setPaymentStatus(MESSAGES.TOTAL_CHANGED, STATUS.ERROR);
+      notifyPaymentFailure(event);
+      return false;
+    }
     await synchronizeWalletDetails(event);
     if (!(await syncAmountAfterWalletUpdate(event))) {
       return false;
     }
-
-    const submitResult = await elements.submit();
+    const submitResult = await state.elements.submit();
     if (submitResult?.error) {
       await setPaymentStatus(
-        submitResult.error.message || 'The wallet could not submit this payment.',
-        'error',
+        submitResult.error.message || MESSAGES.SUBMIT_FAILED,
+        STATUS.ERROR,
       );
-      notifyPaymentFailure(event, 'invalid_payment_data');
+      notifyPaymentFailure(event, STRIPE.INVALID_PAYMENT_DATA);
       return false;
     }
-
     const billingDetails = toStripeBillingDetails(event.billingDetails);
-    const shippingDetails = walletShippingRequired
-      ? toStripeShippingDetails(
-        event.shippingAddress,
-        event.billingDetails?.phone,
-      )
-      : null;
-    const confirmationTokenResult = await stripe.createConfirmationToken({
-      elements,
+    const shippingDetails = (state.walletShippingRequired
+      ? toStripeShippingDetails(event.shippingAddress, event.billingDetails?.phone)
+      : null)
+      || toStripeShippingDetailsFromCommerce(
+        getCheckoutShippingAddress(),
+        event.billingDetails?.phone || getCheckoutPhone(),
+      );
+    const confirmationTokenResult = await state.stripe.createConfirmationToken({
+      elements: state.elements,
       params: {
         ...(billingDetails
-          ? { payment_method_data: { billing_details: billingDetails } }
+          ? {
+            payment_method_data: {
+              billing_details: billingDetails,
+            },
+          }
           : {}),
-        ...(shippingDetails ? { shipping: shippingDetails } : {}),
+        ...(shippingDetails
+          ? {
+            shipping: shippingDetails,
+          }
+          : {}),
       },
     });
-
-    if (
-      confirmationTokenResult.error
-      || !confirmationTokenResult.confirmationToken?.id
-    ) {
+    if (confirmationTokenResult.error || !confirmationTokenResult.confirmationToken?.id) {
       await setPaymentStatus(
-        confirmationTokenResult.error?.message
-          || 'The wallet payment details could not be confirmed.',
-        'error',
+        confirmationTokenResult.error?.message || MESSAGES.TOKEN_FAILED,
+        STATUS.ERROR,
       );
-      notifyPaymentFailure(event, 'invalid_payment_data');
+      notifyPaymentFailure(event, STRIPE.INVALID_PAYMENT_DATA);
       return false;
     }
-
     const { confirmationToken } = confirmationTokenResult;
     const confirmationTokenId = confirmationToken.id;
-
     if (cartNeedsWalletAddresses()) {
       await synchronizeWalletDetails(event, {
         shipping: toWalletAddress(confirmationToken.shipping),
@@ -1142,47 +307,37 @@ async function runConfirmation(event) {
         return false;
       }
     }
-
     if (cartNeedsWalletAddresses()) {
-      await setPaymentStatus(
-        'The wallet did not provide a complete billing or shipping address.',
-        'error',
-      );
-      notifyPaymentFailure(event, 'invalid_shipping_address');
+      await setPaymentStatus(MESSAGES.ADDRESS_INCOMPLETE, STATUS.ERROR);
+      notifyPaymentFailure(event);
       return false;
     }
-
     const paymentIntentData = await createPaymentIntent(confirmationTokenId);
     await persistStripePaymentMethod(paymentIntentData.client_secret);
-
-    const confirmParams = { confirmation_token: confirmationTokenId };
+    const confirmParams = {
+      confirmation_token: confirmationTokenId,
+    };
     if (paymentIntentData.return_url) {
       confirmParams.return_url = paymentIntentData.return_url;
     }
-
-    const confirmationResult = await stripe.confirmPayment({
+    const confirmationResult = await state.stripe.confirmPayment({
       clientSecret: paymentIntentData.client_secret,
       confirmParams,
-      redirect: 'if_required',
+      redirect: STRIPE.REDIRECT_IF_REQUIRED,
     });
-
     if (confirmationResult.error) {
       await setPaymentStatus(
-        confirmationResult.error.message || 'Stripe could not confirm the payment.',
-        'error',
+        confirmationResult.error.message || MESSAGES.CONFIRM_FAILED,
+        STATUS.ERROR,
       );
       notifyPaymentFailure(event);
       return false;
     }
-
     if (
       confirmationResult.paymentIntent?.status
       && !SUPPORTED_PAYMENT_STATUSES.has(confirmationResult.paymentIntent.status)
     ) {
-      await setPaymentStatus(
-        'The payment was not completed. Please try again or use the card form below.',
-        'error',
-      );
+      await setPaymentStatus(MESSAGES.PAYMENT_INCOMPLETE, STATUS.ERROR);
       notifyPaymentFailure(event);
       return false;
     }
@@ -1190,289 +345,346 @@ async function runConfirmation(event) {
     // Payment Methods can auto-sync its previously selected fallback method.
     // Reassert and verify Stripe immediately before Commerce creates the order.
     await persistStripePaymentMethod(paymentIntentData.client_secret);
-
-    await setPaymentStatus(
-      'Payment confirmed. We are creating your order.',
-    );
+    await setPaymentStatus(MESSAGES.CREATING_ORDER);
     const order = await orderApi.placeOrder(cartId);
     if (!order) {
-      throw new Error('Adobe Commerce did not create the order.');
+      throw new Error(MESSAGES.ORDER_FAILED);
     }
-    confirmedCartId = cartId;
-    await setPaymentStatus(
-      'Your payment was successful and your order has been placed.',
-      'success',
-    );
+    state.confirmedCartId = cartId;
+    await setPaymentStatus(MESSAGES.ORDER_PLACED, STATUS.SUCCESS);
     return true;
   } catch (error) {
-    console.warn('Stripe Express Checkout confirmation failed.', error);
-    await setPaymentStatus(
-      error.message || 'Express Checkout could not complete the payment.',
-      'error',
-    );
+    console.warn(DIAGNOSTICS.CONFIRMATION_FAILED, error);
+    await setPaymentStatus(error.message || MESSAGES.PAYMENT_FAILED, STATUS.ERROR);
     notifyPaymentFailure(event);
     return false;
   } finally {
-    confirmationInProgress = false;
-    modalOpen = false;
+    state.confirmationInProgress = false;
+    state.modalOpen = false;
     setCheckoutBlocked(false);
   }
 }
 
+/**
+ * Share one confirmation promise across overlapping confirm events.
+ * @param {Object} event Stripe Express Checkout event.
+ * @returns {Promise<boolean>}
+ */
 function handleConfirm(event) {
-  if (!activeConfirmation) {
-    activeConfirmation = runConfirmation(event).finally(() => {
-      activeConfirmation = null;
+  if (!state.activeConfirmation) {
+    state.activeConfirmation = runConfirmation(event).finally(() => {
+      state.activeConfirmation = null;
     });
   }
-
-  return activeConfirmation;
+  return state.activeConfirmation;
 }
 
+// Wallet events and mounting
+
+/**
+ * Unblock a dismissed wallet and synchronize outside active confirmation.
+ * @returns {void}
+ */
 function handleModalDismissed() {
-  modalOpen = false;
-  if (!confirmationInProgress) {
+  state.modalOpen = false;
+  if (!state.confirmationInProgress) {
     setCheckoutBlocked(false);
     synchronizeMountedElement();
   }
 }
 
-function registerExpressCheckoutHandlers() {
-  expressCheckoutElement.on('click', (event) => {
+/**
+ * Select the Elements instance and shipping policy for the current attempt.
+ * @param {import('./wallets.js').WalletDescriptor} wallet Wallet and collection policy.
+ * @returns {void}
+ */
+function activateWallet(wallet) {
+  state.elements = wallet.elements;
+  state.walletShippingRequired = wallet.collectsShipping;
+}
+
+/**
+ * Connect a wallet descriptor to the shared payment and shipping handlers.
+ * @param {import('./wallets.js').WalletDescriptor} wallet Wallet and collection policy.
+ * @returns {void}
+ */
+function registerExpressCheckoutHandlers(wallet) {
+  const { element: walletElement, collectsShipping: collectShipping } = wallet;
+  walletElement.on(EVENTS.CLICK, (event) => {
     clearPaymentStatus();
-    modalOpen = true;
-    walletReauthorizationRequired = false;
+    state.modalOpen = true;
+    state.walletReauthorizationRequired = false;
     setCheckoutBlocked(true);
-    // Amazon Pay's JS-only onInitCheckout must receive this payload immediately.
-    // Omitting shippingRates (or passing none) leaves originUrl unset.
-    event.resolve({ shippingRates: currentShippingRates });
+    activateWallet(wallet);
+    if (!collectShipping) {
+      const money = getWalletElementsAmount();
+      if (
+        money.currency === state.currentCurrency
+        && money.amount !== state.currentAmount
+      ) {
+        updateMountedElementsAmount(money.amount);
+      }
+    }
+    // Stripe discards the sheet if resolve() waits more than ~1s.
+    event.resolve(getClickResolvePayload(collectShipping));
+    if (!collectShipping) {
+      ensureSelectedShippingOnCart();
+    }
   });
-  expressCheckoutElement.on('confirm', handleConfirm);
-  expressCheckoutElement.on(
-    'shippingaddresschange',
-    handleShippingAddressChange,
-  );
-  expressCheckoutElement.on('shippingratechange', handleShippingRateChange);
-  expressCheckoutElement.on('cancel', handleModalDismissed);
-  expressCheckoutElement.on('escape', handleModalDismissed);
-  expressCheckoutElement.on('loaderror', async (event) => {
-    console.warn(
-      'Stripe Express Checkout Element failed to load.',
-      event.error,
-    );
-    elementLoadFailed = true;
+  walletElement.on(EVENTS.CONFIRM, (event) => {
+    activateWallet(wallet);
+    return handleConfirm(event);
+  });
+  walletElement.on(EVENTS.SHIPPING_ADDRESS_CHANGE, handleShippingAddressChange);
+  walletElement.on(EVENTS.SHIPPING_RATE_CHANGE, handleShippingRateChange);
+  walletElement.on(EVENTS.CANCEL, handleModalDismissed);
+  walletElement.on(EVENTS.ESCAPE, handleModalDismissed);
+  walletElement.on(EVENTS.LOAD_ERROR, async (event) => {
+    console.warn(DIAGNOSTICS.ELEMENT_LOAD_FAILED, event.error);
+    wallet.available = false;
     handleModalDismissed();
-    hideExpressCheckout(false);
-    await setPaymentStatus(
-      'Express Checkout is unavailable. Please use the card payment form below.',
-      'error',
-    );
-  });
-  expressCheckoutElement.on('ready', (event) => {
-    if (event.availablePaymentMethods) {
-      clearPaymentStatus();
-      showExpressCheckout();
-    } else {
-      clearPaymentStatus();
-      hideExpressCheckout();
+    syncWalletVisibility();
+    if (!wallets.some((item) => item.available)) {
+      if (state.blockContainer) {
+        state.blockContainer.hidden = false;
+      }
+      await setPaymentStatus(MESSAGES.UNAVAILABLE, STATUS.ERROR);
     }
   });
-  expressCheckoutElement.on('availablepaymentmethodschange', (event) => {
-    if (event.paymentMethods) {
+  walletElement.on(EVENTS.READY, (event) => {
+    wallet.available = Boolean(event.availablePaymentMethods);
+    if (wallets.some((item) => item.available)) {
       clearPaymentStatus();
-      showExpressCheckout();
-    } else {
-      clearPaymentStatus();
-      hideExpressCheckout();
     }
+    syncWalletVisibility();
+  });
+  walletElement.on(EVENTS.METHODS_CHANGE, (event) => {
+    wallet.available = Boolean(event.paymentMethods);
+    if (wallets.some((item) => item.available)) {
+      clearPaymentStatus();
+    }
+    syncWalletVisibility();
   });
 }
 
+/**
+ * Initialize Stripe and mount eligible wallets in their descriptor order.
+ * @returns {Promise<void>}
+ */
 async function mountExpressCheckout() {
   if (
-    mountInProgress
-    || expressCheckoutElement
-    || !mountContainer
-    || !checkoutData
-    || !cartData
+    state.mountInProgress
+    || primaryWallet.element
+    || !primaryWallet.container
+    || !state.checkoutData
+    || !state.cartData
     || !isStripePaymentMethodAvailable()
   ) {
     return;
   }
-
-  mountInProgress = true;
+  state.mountInProgress = true;
   clearPaymentStatus();
-  if (blockContainer) {
-    blockContainer.hidden = false;
+  if (state.blockContainer) {
+    state.blockContainer.hidden = false;
   }
-  mountContainer.hidden = false;
-  mountContainer.classList.remove(HIDDEN_CLASS);
-  mountContainer.classList.add(LOADING_CLASS);
-
+  wallets.forEach((wallet) => {
+    if (!wallet.container) return;
+    wallet.container.hidden = false;
+    wallet.container.classList.remove(HIDDEN_CLASS);
+    wallet.container.classList.add(LOADING_CLASS);
+  });
   try {
     await loadStripeJs();
-    runtimeConfig = parseRuntimeConfig();
-    initParams = await fetchInitParams(runtimeConfig.getInitParamsUrl);
-    stripe = Stripe(initParams.publishableKey, initParams.options);
-    if (initParams.appInfo) {
-      stripe.registerAppInfo(initParams.appInfo);
+    state.runtimeConfig = parseRuntimeConfig();
+    state.initParams = await fetchInitParams(state.runtimeConfig.getInitParamsUrl);
+    state.stripe = Stripe(state.initParams.publishableKey, state.initParams.options);
+    if (state.initParams.appInfo) {
+      state.stripe.registerAppInfo(state.initParams.appInfo);
     }
-
-    const expressCheckoutOptions = getExpressCheckoutOptions();
     const elementsOptions = getElementsOptions();
+    syncMagentoShippingRates();
     const walletAmount = getWalletElementsAmount();
     elementsOptions.amount = walletAmount.amount;
-    currentAmount = elementsOptions.amount;
-    currentCurrency = elementsOptions.currency;
-    elements = stripe.elements(elementsOptions);
-    walletShippingRequired = expressCheckoutOptions.shippingAddressRequired;
-    expressCheckoutElement = elements.create(
-      'expressCheckout',
-      expressCheckoutOptions,
-    );
-    registerExpressCheckoutHandlers();
-    expressCheckoutElement.mount(`#${ELEMENT_CONTAINER_ID}`);
-    mountedConfigurationKey = getConfigurationKey();
+    state.currentAmount = elementsOptions.amount;
+    state.currentCurrency = elementsOptions.currency;
+    wallets.forEach((wallet) => {
+      if (!wallet.isEnabled(isVirtualCart()) || !wallet.container) return;
+      wallet.elements = state.stripe.elements({
+        ...elementsOptions,
+      });
+      if (wallet === primaryWallet) state.elements = wallet.elements;
+      syncMagentoShippingRates();
+      wallet.element = wallet.elements.create(
+        STRIPE.ELEMENT_TYPE,
+        wallet.getOptions(getSharedExpressCheckoutFields(), state.currentShippingRates),
+      );
+      registerExpressCheckoutHandlers(wallet);
+      wallet.element.mount(`#${wallet.containerId}`);
+    });
+    state.mountedConfigurationKey = getConfigurationKey();
   } catch (error) {
-    console.warn(
-      'Unable to initialize Stripe Express Checkout Element.',
-      error,
-    );
+    console.warn(DIAGNOSTICS.ELEMENT_INIT_FAILED, error);
     hideExpressCheckout(false);
-    await setPaymentStatus(
-      'Express Checkout is unavailable. Please use the card payment form below.',
-      'error',
-    );
+    await setPaymentStatus(MESSAGES.UNAVAILABLE, STATUS.ERROR);
   } finally {
-    mountInProgress = false;
+    state.mountInProgress = false;
   }
 }
 
+/**
+ * Mount, remount, or refresh totals while no wallet attempt is active.
+ * @returns {Promise<void>}
+ */
 async function synchronizeMountedElement() {
-  if (!mountContainer || modalOpen || confirmationInProgress) {
+  if (!primaryWallet.container || state.modalOpen || state.confirmationInProgress) {
     return;
   }
-
   if (!isStripePaymentMethodAvailable()) {
     destroyExpressCheckout();
     clearPaymentStatus();
     hideExpressCheckout();
     return;
   }
-
-  if (!expressCheckoutElement) {
+  if (!primaryWallet.element) {
+    await ensureSelectedShippingOnCart();
     await mountExpressCheckout();
     return;
   }
-
   const nextConfigurationKey = getConfigurationKey();
-  if (nextConfigurationKey !== mountedConfigurationKey) {
+  if (nextConfigurationKey !== state.mountedConfigurationKey) {
     destroyExpressCheckout();
     await mountExpressCheckout();
     return;
   }
-
+  await ensureSelectedShippingOnCart();
   const money = getWalletElementsAmount();
-  if (money.currency !== currentCurrency) {
+  if (money.currency !== state.currentCurrency) {
     destroyExpressCheckout();
     await mountExpressCheckout();
-  } else if (money.amount !== currentAmount) {
-    await elements.update({ amount: money.amount });
-    currentAmount = money.amount;
+  } else if (money.amount !== state.currentAmount) {
+    await updateMountedElementsAmount(money.amount);
   }
 }
 
+// Public checkout integration
+
+/**
+ * Render the Express payment surface and schedule its initial synchronization.
+ * @param {Object} ctx Checkout slot context providing replaceHTML.
+ * @param {Object} [options] Checkout integration settings.
+ * @param {function(): Promise<boolean>} [options.handleValidation] Terms validation callback.
+ * @returns {void}
+ */
 function renderStripePaymentMethod(ctx, options = {}) {
   destroyExpressCheckout();
   clearPaymentStatus();
-  validateCheckout = options.handleValidation || null;
-
+  state.validateCheckout = options.handleValidation || null;
   const content = document.createElement('div');
-  content.className = 'stripe-express-checkout';
-  blockContainer = content;
+  content.className = BLOCK_CLASS;
+  state.blockContainer = content;
   const heading = document.createElement('h3');
-  heading.className = 'stripe-express-checkout-heading';
-  heading.textContent = 'Express checkout';
-  mountContainer = document.createElement('div');
-  mountContainer.id = ELEMENT_CONTAINER_ID;
-  mountContainer.className = LOADING_CLASS;
-  statusContainer = document.createElement('div');
-  statusContainer.className = 'stripe-express-checkout-status';
+  heading.className = HEADING_CLASS;
+  heading.textContent = MESSAGES.HEADING;
+  wallets.forEach((wallet) => {
+    wallet.container = document.createElement('div');
+    wallet.container.id = wallet.containerId;
+    wallet.container.className = [LOADING_CLASS, wallet.containerClassName]
+      .filter(Boolean)
+      .join(' ');
+  });
+  state.statusContainer = document.createElement('div');
+  state.statusContainer.className = STATUS_CLASS;
   const separator = document.createElement('div');
-  separator.className = 'stripe-express-checkout-separator';
-  separator.textContent = 'Or pay another way';
+  separator.className = SEPARATOR_CLASS;
+  separator.textContent = MESSAGES.SEPARATOR;
   separator.setAttribute('role', 'separator');
-  separator.setAttribute('aria-label', 'Or pay another way');
+  separator.setAttribute('aria-label', MESSAGES.SEPARATOR);
   content.appendChild(heading);
-  content.appendChild(mountContainer);
-  content.appendChild(statusContainer);
+  wallets.forEach((wallet) => content.appendChild(wallet.container));
+  content.appendChild(state.statusContainer);
   content.appendChild(separator);
   ctx.replaceHTML(content);
-
   requestAnimationFrame(() => {
     synchronizeMountedElement();
   });
 }
 
+/**
+ * Report whether Express Checkout already confirmed the requested cart.
+ * @param {string} cartId Commerce cart ID.
+ * @returns {Promise<boolean>}
+ */
 async function handleStripePayment(cartId) {
-  return Boolean(cartId && confirmedCartId === cartId);
+  return Boolean(cartId && state.confirmedCartId === cartId);
 }
 
+/**
+ * Preserve the public validation contract for the active cart.
+ * @returns {boolean}
+ */
 function validateStripePayment() {
-  if (!expressCheckoutElement) {
+  if (!wallets.some((wallet) => wallet.element)) {
     return true;
   }
-
-  return confirmedCartId === getActiveCartId();
+  return state.confirmedCartId === getActiveCartId();
 }
 
+// Keep event subscriptions at the integration boundary.
 events.on(
-  'checkout/initialized',
+  EVENTS.CHECKOUT_INITIALIZED,
   (data) => {
-    checkoutData = data;
+    state.checkoutData = data;
     synchronizeMountedElement();
   },
-  { eager: true },
+  {
+    eager: true,
+  },
 );
-
-events.on('checkout/updated', (data) => {
-  checkoutData = data;
+events.on(EVENTS.CHECKOUT_UPDATED, (data) => {
+  state.checkoutData = data;
   synchronizeMountedElement();
 });
-
 events.on(
-  'cart/initialized',
+  EVENTS.CART_INITIALIZED,
   (data) => {
-    cartData = data;
+    state.cartData = data;
     synchronizeMountedElement();
   },
-  { eager: true },
+  {
+    eager: true,
+  },
 );
-
 events.on(
-  'cart/updated',
+  EVENTS.CART_UPDATED,
   (data) => {
-    cartData = data;
+    state.cartData = data;
     synchronizeMountedElement();
   },
-  { eager: true },
+  {
+    eager: true,
+  },
 );
-
-events.on('cart/reset', () => {
-  cartData = null;
-  checkoutData = null;
-  confirmedCartId = null;
+events.on(EVENTS.CART_RESET, () => {
+  state.cartData = null;
+  state.checkoutData = null;
+  state.confirmedCartId = null;
   destroyExpressCheckout();
 });
 
-export {
-  handleStripePayment,
-  renderStripePaymentMethod,
-  validateStripePayment,
-};
-
+/**
+ * Decorate the Express Checkout host injected into the Payment Methods title slot.
+ * @param {Element} block Host element supplied by checkout.
+ * @param {Object} [options] Checkout integration settings.
+ * @param {function(): Promise<boolean>} [options.handleValidation] Terms validation callback.
+ * @returns {void}
+ */
 export default function decorate(block, options = {}) {
-  renderStripePaymentMethod({
-    replaceHTML: (content) => block.replaceChildren(content),
-  }, options);
+  renderStripePaymentMethod(
+    {
+      replaceHTML: (content) => block.replaceChildren(content),
+    },
+    options,
+  );
 }
+
+export { handleStripePayment, renderStripePaymentMethod, validateStripePayment };
