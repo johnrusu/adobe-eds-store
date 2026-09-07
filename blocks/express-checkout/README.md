@@ -255,6 +255,12 @@ responses. Click builds these rows synchronously from the latest cart state; it
 does not fetch configuration or wait for a Commerce mutation. Line items are
 updated through event resolution, not through unsupported Element update options.
 
+Express Checkout listens to `cart/data`, the same refreshed cart event used by
+Commerce's Order Summary. Address and shipping changes can emit this event without
+`cart/updated`; the latest totals and taxes are then available on the next wallet
+click without a page refresh. Active wallet attempts retain the confirmation
+check for changed totals.
+
 The normal breakdown is Subtotal, Shipping & Handling (including the selected
 method name), and Tax. The subtotal and shipping follow Commerce's tax-display
 settings. For a setting that displays both prices, the summary uses the inclusive

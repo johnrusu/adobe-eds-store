@@ -699,6 +699,18 @@ events.on(
     eager: true,
   },
 );
+// Checkout address/method changes refresh totals through cart/data without
+// emitting cart/updated. Use the same cart snapshot as Commerce's Order Summary.
+events.on(
+  EVENTS.CART_DATA,
+  (data) => {
+    state.cartData = data;
+    if (data) synchronizeMountedElement();
+  },
+  {
+    eager: true,
+  },
+);
 events.on(EVENTS.CART_RESET, () => {
   state.cartData = null;
   state.checkoutData = null;

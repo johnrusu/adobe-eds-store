@@ -1626,6 +1626,44 @@ describe('stripe-express-checkout EDS block', () => {
     expect(block.mocks.checkoutApi.setShippingMethods).not.toHaveBeenCalled();
   });
 
+  test.each([false, true])('refreshes Link tax from cart/data after a country change (Michigan: %s)', async (toMichigan) => {
+    const block = loadStripeExpressCheckoutBlock({ separateWalletInstances: true });
+    const michigan = summaryFixture();
+    const romania = summaryFixture();
+    romania.cart.total.includingTax.value = 15;
+    romania.cart.subtotal.includingTax.value = 10;
+    romania.cart.totalTax.value = 0;
+    romania.method.amountInclTax.value = 5;
+    romania.checkout.shippingAddress.country = { code: 'RO' };
+    romania.checkout.shippingAddress.region = { code: 'B' };
+    const initial = toMichigan ? romania : michigan;
+    const updated = toMichigan ? michigan : romania;
+    await renderAndMount(block, initial);
+    await getHandler(block, 'click')({ resolve: jest.fn() });
+    await getHandler(block, 'cancel')();
+
+    // Address mutations refresh the Cart Drop-in via cart/data, without cart/updated.
+    await block.events.emit('checkout/updated', updated.checkout);
+    await block.events.emit('cart/data', updated.cart);
+    await flushPromises();
+    const amount = toMichigan ? 1583 : 1500;
+    expect(block.elements.update).toHaveBeenLastCalledWith({ amount });
+    expect(block.amazonElements.update).toHaveBeenLastCalledWith({ amount });
+
+    const event = { resolve: jest.fn() };
+    await getHandler(block, 'click')(event);
+
+    expect(event.resolve).toHaveBeenCalledWith({
+      lineItems: [
+        { name: 'Subtotal', amount: 1000 },
+        { name: 'Shipping & Handling (Flat Rate - Fixed)', amount: 500 },
+        ...(toMichigan ? [{ name: 'Tax', amount: 83 }] : []),
+      ],
+    });
+    expect(block.expressCheckoutElement.mount).toHaveBeenCalledTimes(1);
+    expect(block.mocks.cartApi.refreshCart).not.toHaveBeenCalled();
+  });
+
   test.each([
     ['EXCLUDING_TAX', 'EXCLUDING_TAX', [1000, 500, 83]],
     ['INCLUDING_TAX', 'EXCLUDING_TAX', [1060, 500, 23]],

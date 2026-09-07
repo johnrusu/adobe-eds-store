@@ -87,6 +87,7 @@ export const EVENTS = Object.freeze({
   CHECKOUT_VALUES: 'checkout/values',
   CART_INITIALIZED: 'cart/initialized',
   CART_UPDATED: 'cart/updated',
+  CART_DATA: 'cart/data',
   CART_RESET: 'cart/reset',
   CLICK: 'click',
   CONFIRM: 'confirm',
