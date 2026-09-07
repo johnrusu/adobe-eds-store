@@ -237,8 +237,7 @@ function getWalletElementsAmount() {
 }
 
 /**
- * Align the wallet with the latest cart snapshot before resolving shipping rows.
- * Estimated rates remain selectable but cannot replace Magento's grand total.
+ * Align the wallet amount with Commerce before resolving shipping rows.
  * @returns {Promise<void>}
  */
 async function syncWalletAmountFromCart() {
@@ -269,16 +268,18 @@ async function updateMountedElementsAmount(amount) {
 }
 
 /**
- * Read available methods from the current Commerce shipping address.
+ * Read Commerce rates, falling back to its selected method for partial snapshots.
  * @returns {Object[]}
  */
 function getAvailableShippingMethods() {
   const shippingAddress = getCheckoutShippingAddress();
-  return (
+  const methods = (
     shippingAddress?.availableShippingMethods
     || shippingAddress?.available_shipping_methods
     || []
   );
+  const selected = getSelectedShippingMethod();
+  return methods.length ? methods : [selected].filter(Boolean);
 }
 
 /**
@@ -382,6 +383,18 @@ async function handleShippingAddressChange(event) {
       phone: event.phone || event.phoneNumber,
     });
     const magentoHasShipping = isCompleteCommerceAddress(getCheckoutShippingAddress());
+    if (magentoHasShipping) {
+      // Estimation emits shipping/estimate, which makes Order Summary calculate
+      // totals with the wallet address. Keep checkout-owned shipping isolated.
+      const shippingRates = setAvailableShippingMethods(getAvailableShippingMethods());
+      if (!shippingRates.length) {
+        event.reject();
+        return;
+      }
+      await syncWalletAmountFromCart();
+      event.resolve({ shippingRates, lineItems: getWalletLineItems() });
+      return;
+    }
     if (isCompleteWalletAddress(walletAddress) && !magentoHasShipping) {
       persistedCheckout = await checkoutApi.setShippingAddress({
         address: toCommerceAddress(walletAddress, walletAddress.phone),

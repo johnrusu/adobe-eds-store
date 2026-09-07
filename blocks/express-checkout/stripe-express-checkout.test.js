@@ -515,6 +515,7 @@ function loadStripeExpressCheckoutBlock({
   context.__exports = loadModule(STRIPE_BLOCK_PATH);
 
   return {
+    state: loadModule(path.join(path.dirname(STRIPE_BLOCK_PATH), 'checkout-state.js')).state,
     exports: context.__exports,
     mocks: context.__mocks,
     events,
@@ -1462,7 +1463,69 @@ describe('stripe-express-checkout EDS block', () => {
     });
 
     expect(block.mocks.checkoutApi.setShippingAddress).not.toHaveBeenCalled();
-    expect(block.mocks.checkoutApi.estimateShippingMethods).toHaveBeenCalled();
+    expect(block.mocks.checkoutApi.estimateShippingMethods).not.toHaveBeenCalled();
+  });
+
+  test.each(['available', 'empty', 'missing'])('preserves Michigan shipping and tax after Amazon cancellation with %s rates', async (rates) => {
+    const block = loadStripeExpressCheckoutBlock({ separateWalletInstances: true });
+    const fixture = summaryFixture();
+    if (rates === 'empty') fixture.checkout.shippingAddress.availableShippingMethods = [];
+    if (rates === 'missing') delete fixture.checkout.shippingAddress.availableShippingMethods;
+    const originalCheckout = JSON.parse(JSON.stringify(fixture.checkout));
+    const originalCart = JSON.parse(JSON.stringify(fixture.cart));
+    const estimateTotals = jest.fn();
+    block.events.on('shipping/estimate', estimateTotals);
+    block.mocks.checkoutApi.estimateShippingMethods.mockImplementation(async () => {
+      await block.events.emit('shipping/estimate', { address: walletAddress().address });
+      return [shippingMethod()];
+    });
+    await renderAndMount(block, fixture);
+    const click = { resolve: jest.fn() };
+    await getHandler(block, 'click', 'amazon')(click);
+    const addressChange = { ...walletAddress(), resolve: jest.fn(), reject: jest.fn() };
+    await getHandler(block, 'shippingaddresschange', 'amazon')(addressChange);
+    expect(addressChange.reject).not.toHaveBeenCalled();
+    const { shippingRates, lineItems } = addressChange.resolve.mock.calls[0][0];
+    expect(shippingRates).toHaveLength(1);
+    expect(shippingRates[0].id).toBe('flatrate:flatrate');
+    expect(lineItems).toContainEqual({ name: 'Tax', amount: 83 });
+    expect(lineItems.reduce((sum, item) => sum + item.amount, 0)).toBe(1583);
+    const rateChange = { shippingRate: shippingRates[0], resolve: jest.fn(), reject: jest.fn() };
+    await getHandler(block, 'shippingratechange', 'amazon')(rateChange);
+    expect(rateChange.reject).not.toHaveBeenCalled();
+    await getHandler(block, 'cancel', 'amazon')();
+    await flushPromises();
+
+    expect(estimateTotals).not.toHaveBeenCalled();
+    expect(block.mocks.checkoutApi.estimateShippingMethods).not.toHaveBeenCalled();
+    expect(block.mocks.checkoutApi.setShippingAddress).not.toHaveBeenCalled();
+    expect(block.mocks.checkoutApi.setShippingMethods).not.toHaveBeenCalled();
+    expect(block.state.checkoutData).toEqual(originalCheckout);
+    expect(block.state.cartData).toEqual(originalCart);
+    expect(block.state.currentAmount).toBe(1583);
+    expect(block.state.modalOpen).toBe(false);
+    expect(block.elements.update).not.toHaveBeenCalled();
+    expect(block.amazonElements.update).not.toHaveBeenCalled();
+    const reopen = { resolve: jest.fn() };
+    await getHandler(block, 'click', 'amazon')(reopen);
+    expect(reopen.resolve.mock.calls[0][0].lineItems).toEqual(lineItems);
+  });
+
+  test('rejects Amazon shipping changes when owned shipping has no rates or selected method', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    const fixture = summaryFixture();
+    fixture.checkout.shippingAddress.availableShippingMethods = [];
+    fixture.checkout.shippingAddress.selectedShippingMethod = null;
+    await renderAndMount(block, fixture);
+    await getHandler(block, 'click', 'amazon')({ resolve: jest.fn() });
+    const event = { ...walletAddress(), resolve: jest.fn(), reject: jest.fn() };
+    await getHandler(block, 'shippingaddresschange', 'amazon')(event);
+    expect(event.reject).toHaveBeenCalledTimes(1);
+    expect(event.resolve).not.toHaveBeenCalled();
+    expect(block.mocks.checkoutApi.estimateShippingMethods).not.toHaveBeenCalled();
+    expect(block.mocks.checkoutApi.setShippingAddress).not.toHaveBeenCalled();
+    expect(block.mocks.checkoutApi.setShippingMethods).not.toHaveBeenCalled();
+    expect(block.state.currentAmount).toBe(1583);
   });
 
   test('blocks wallet confirmation until Magento has a shipping address and method', async () => {

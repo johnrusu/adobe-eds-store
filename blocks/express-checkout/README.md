@@ -219,8 +219,8 @@ PaymentIntent requests from authenticated storefronts forward the
 - Magento-owned wallets (Link, Apple Pay, Google Pay, PayPal, Klarna) also
   validate the Magento shipping and billing forms on click and confirm. A
   missing required phone number rejects the wallet click, keeps Magento's
-  field error visible, and shows a clear Express Checkout message instead of
-  a generic payment failure. Amazon Pay skips that Magento form check because
+  field error visible, and shows a clear Express Checkout message instead of a
+  generic payment failure. Amazon Pay skips that Magento form check because
   it collects its own address.
 - Link confirm does not collect shipping in the wallet. The Magento shipping
   address is attached to `createConfirmationToken()`, and a complete Magento
@@ -228,11 +228,18 @@ PaymentIntent requests from authenticated storefronts forward the
   bill-to-shipping. Amount mismatches are reported as a generic payment
   failure, not as an invalid shipping address.
 - A complete `shippingaddresschange` address is persisted only when Magento
-  does not already have a complete shipping address. Otherwise the wallet
-  address is used only to `estimateShippingMethods()` for the sheet.
+  does not already have a complete shipping address.
+- When Magento already has a complete shipping address, the wallet's
+  `shippingaddresschange` never calls `estimateShippingMethods()`. That
+  API emits `shipping/estimate`, which makes Order Summary request
+  `estimateTotals` with the wallet address. The wallet instead uses Magento's
+  `availableShippingMethods`, falling back to its selected method when the list
+  is empty or missing. If neither exists, the shipping change is rejected.
+  Opening and dismissing the sheet preserves checkout-owned shipping and taxes.
 - Browsers can redact `shippingaddresschange` addresses. A redacted address is
   used only with `estimateShippingMethods()` and is never persisted as if it
-  were complete.
+  were complete. Estimation only runs when Magento has no complete shipping
+  address yet.
 - Wallet payloads are normalized before persist. Amazon Pay may flatten fields,
   use Amazon address keys, or put the street in `line2` with an empty `line1`.
   Incomplete Amazon billing falls back to shipping (`sameAsShipping`) rather
@@ -240,7 +247,7 @@ PaymentIntent requests from authenticated storefronts forward the
   address is used after `elements.submit()`.
 - `shippingratechange` persists a method only when the wallet just wrote the
   Magento address. If Magento already had a complete address and method, the
-  wallet rate remains on the sheet without changing Magento's grand total.
+  wallet rate stays on the sheet without changing Magento's grand total.
 - After shipping changes, `refreshCart()` supplies the authoritative amount.
   If the amount changes only after wallet authorization, the current attempt is
   failed and Elements is updated so the shopper can authorize the corrected
@@ -255,12 +262,6 @@ responses. Click builds these rows synchronously from the latest cart state; it
 does not fetch configuration or wait for a Commerce mutation. Line items are
 updated through event resolution, not through unsupported Element update options.
 
-Express Checkout listens to `cart/data`, the same refreshed cart event used by
-Commerce's Order Summary. Address and shipping changes can emit this event without
-`cart/updated`; the latest totals and taxes are then available on the next wallet
-click without a page refresh. Active wallet attempts retain the confirmation
-check for changed totals.
-
 The normal breakdown is Subtotal, Shipping & Handling (including the selected
 method name), and Tax. The subtotal and shipping follow Commerce's tax-display
 settings. For a setting that displays both prices, the summary uses the inclusive
@@ -273,11 +274,11 @@ grand total produce a single Grand Total row. Discounts are not sent as negative
 rows; a discounted cart uses the full breakdown only if its nonnegative amounts
 already reconcile. This is the storefront's policy, not a Stripe API restriction.
 
-The wallet amount and Grand Total fallback use Magento's grand total, including
-when shipping data is partial. An estimated wallet rate cannot replace this total.
-Persisted shipping changes refresh Commerce totals before resolving the summary.
-The existing confirmation check still requires the authorized and Commerce totals
-to agree before payment proceeds; a changed total requires another authorization.
+Wallet amounts and the Grand Total fallback use Magento's authoritative total,
+including when shipping data is partial. Estimated rates cannot replace that
+total or remove taxes and discounts. Persisted shipping changes refresh Commerce
+totals before resolving the summary. The confirmation check requires authorized
+and Commerce totals to agree; a changed total requires another authorization.
 
 ## Amazon Pay testing
 
@@ -296,9 +297,7 @@ Element, and tells the shopper to use the regular card form.
 
 ## Capture modes
 
-The block supports automatic and manual capture. The public `init-params`
-response supplies nested `paymentMethodOptions` that match the PaymentIntent
-action. The block forwards those options and ignores a top-level
+The block supports automatic and manual capture. The public `init-params` response supplies nested `paymentMethodOptions` that match the PaymentIntent action. The block forwards those options and ignores a top-level
 `captureMethod` if one is still present:
 
 - Automatic capture confirms to `succeeded` or `processing`; the existing
@@ -326,3 +325,10 @@ Run them from the storefront root:
 ```sh
 npx -y jest@29 blocks/express-checkout/stripe-express-checkout.test.js --runInBand
 ```
+
+Shipping ownership checks also live in `shipping-owned-address.test.js`. Run both
+suites with `npx -y jest@29 blocks/express-checkout --runInBand`. Cancellation
+coverage exercises Amazon shipping events with a taxed Michigan checkout,
+including empty and missing rate lists, and checks the preserved address, method,
+tax, and wallet amount. Repeat the actual Amazon continue/cancel flow on the
+registered HTTPS checkout for SDK and backend verification.
