@@ -28,6 +28,7 @@ No localStorage keys are used by this block. -->
 - `events.on('checkout/updated', callback)` - Handles checkout data updates
 - `events.on('checkout/values', callback)` - Handles checkout form value changes
 - `events.on('order/placed', callback)` - Handles successful order placement
+- `window` `pageshow` (via `page-restore.js`) - Handles back/forward cache restores of the checkout page
 
 #### Event Emitters
 
@@ -41,8 +42,23 @@ No localStorage keys are used by this block. -->
 - **Checkout Flow**: Renders full checkout interface with shipping, billing, payment, and order summary
 - **Empty Cart**: When cart is empty, redirects to the cart page
 - **Server Errors**: When server errors occur, shows error state and hides checkout forms
-- **Out of Stock**: When items are out of stock, shows out of stock message with cart update options
+- **Out of Stock**: When items are out of stock, shows out of stock message and cart update options
 - **Order Confirmation**: After successful order placement, transitions to order confirmation view
+
+### Back/Forward Cache Recovery
+
+Redirect-based payment methods (PayPal, Revolut, …) navigate the browser away while an order
+placement is in flight, freezing the page with its overlay spinner mounted. When the browser
+restores that page from the back/forward cache, no drop-in events re-fire, so recovery is handled
+by a `pageshow` listener in `page-restore.js`:
+
+- If a payment confirmation was in flight when the page froze, the page reloads to resync with the
+  server; the fresh load then routes the user through the normal empty-cart/confirmation logic.
+- Otherwise, the standard empty-cart redirect applies (e.g. when returning from an abandoned
+  wallet session with a still-active cart, checkout simply re-renders).
+
+Order confirmation uses `history.replaceState` (instead of `pushState`) for the order details URL,
+so the browser back button from the confirmation view cannot land on the consumed checkout page.
 
 ### User Interaction Flows
 

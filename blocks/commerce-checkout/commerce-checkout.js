@@ -32,6 +32,13 @@ import {
   removeOverlaySpinner,
 } from './utils.js';
 
+// Page restore recovery
+import {
+  beginPaymentConfirmation,
+  endPaymentConfirmation,
+  watchForPageRestore,
+} from './page-restore.js';
+
 // Fragment functions
 import {
   createCheckoutFragment,
@@ -92,6 +99,19 @@ function redirectToCartIfEmpty(cartData) {
     window.location.href = rootLink('/cart');
   }
 }
+
+// A redirect-based wallet (PayPal, Revolut, …) freezes the page while an order
+// placement is in flight. A back/forward cache restore of that page never
+// re-fires drop-in events, so recovery is handled here instead.
+watchForPageRestore(({ isPaymentConfirmationInProgress }) => {
+  if (isPaymentConfirmationInProgress) {
+    window.location.reload();
+    return;
+  }
+
+  const cartData = events.lastPayload('cart/data') ?? events.lastPayload('cart/initialized');
+  redirectToCartIfEmpty(cartData);
+});
 
 function renderLocalTestingNotice(container) {
   const isLocal = ['localhost', '127.0.0.1'].includes(
@@ -210,6 +230,7 @@ export default async function decorate(block) {
 
   const handlePlaceOrder = async ({ cartId, code }) => {
     await displayOverlaySpinner(loaderRef, $loader, $loaderStatus);
+    beginPaymentConfirmation();
     try {
       // Payment Services credit card
       if (code === PaymentMethodCode.CREDIT_CARD) {
@@ -233,6 +254,7 @@ export default async function decorate(block) {
       console.error(error);
       throw error;
     } finally {
+      endPaymentConfirmation();
       removeOverlaySpinner(loaderRef, $loader, $loaderStatus);
     }
   };
@@ -363,7 +385,7 @@ export default async function decorate(block) {
     const orderData = events.lastPayload('order/placed');
     if (orderData) {
       const url = buildOrderDetailsUrl(orderData);
-      window.history.pushState({}, '', url);
+      window.history.replaceState({}, '', url);
     }
 
     window.location.reload();
@@ -381,7 +403,9 @@ export default async function decorate(block) {
 
     const url = buildOrderDetailsUrl(orderData);
 
-    window.history.pushState({}, '', url);
+    // Replace instead of push so the browser back button from the order
+    // confirmation cannot land on the consumed checkout page.
+    window.history.replaceState({}, '', url);
 
     await renderCheckoutSuccess(block, { orderData });
   }
