@@ -97,7 +97,7 @@ function buildOrderSummary(cart, method, settings, virtualCart = false) {
   const subtotal = readSubtotal(cart, inclusiveItems, currency);
   const subtotalExcl = readSubtotal(cart, false, currency);
   const tax = readAggregate(cart, 'totalTax', 'appliedTaxes', currency);
-  const discount = cart.discount != null ? readAmount(cart.discount, currency) : 0;
+  const discount = cart.discount?.value ? readAmount(cart.discount, currency) : 0;
   if (
     subtotal === null || tax === null || discount === null
     || (inclusiveItems && subtotalExcl === null)
