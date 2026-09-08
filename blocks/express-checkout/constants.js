@@ -108,6 +108,7 @@ export const ORDER_SUMMARY = Object.freeze({
   SUBTOTAL: 'Subtotal',
   SHIPPING: 'Shipping & Handling',
   TAX: 'Tax',
+  DISCOUNT: 'Discount',
   GRAND_TOTAL: 'Grand Total',
 });
 

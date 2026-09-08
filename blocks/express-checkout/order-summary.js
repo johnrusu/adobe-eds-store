@@ -75,9 +75,10 @@ function readSubtotal(cart, inclusive, currency) {
 }
 
 /**
- * Build a nonnegative summary only when its rows exactly equal Magento's total.
- * Missing data, discounts requiring a negative row, or rounding differences
- * collapse to one Grand Total row. No taxes are calculated from rates here.
+ * Build a summary only when its rows exactly equal Magento's total, including
+ * a negative Discount row when a coupon is applied. Missing data or rounding
+ * differences collapse to one Grand Total row. No taxes are calculated from
+ * rates here.
  * @param {Object} cart Cart Drop-in model.
  * @param {Object|null} method Selected Commerce shipping method.
  * @param {Object|null} settings Commerce tax-display settings.
@@ -96,7 +97,11 @@ function buildOrderSummary(cart, method, settings, virtualCart = false) {
   const subtotal = readSubtotal(cart, inclusiveItems, currency);
   const subtotalExcl = readSubtotal(cart, false, currency);
   const tax = readAggregate(cart, 'totalTax', 'appliedTaxes', currency);
-  if (subtotal === null || tax === null || (inclusiveItems && subtotalExcl === null)) {
+  const discount = cart.discount != null ? readAmount(cart.discount, currency) : 0;
+  if (
+    subtotal === null || tax === null || discount === null
+    || (inclusiveItems && subtotalExcl === null)
+  ) {
     return fallback;
   }
   let embeddedTax = inclusiveItems ? subtotal - subtotalExcl : 0;
@@ -124,6 +129,9 @@ function buildOrderSummary(cart, method, settings, virtualCart = false) {
   if (remainingTax < 0) return fallback;
   if (remainingTax > 0 || settings?.zeroTax) {
     rows.push({ name: ORDER_SUMMARY.TAX, amount: remainingTax });
+  }
+  if (discount > 0) {
+    rows.push({ name: ORDER_SUMMARY.DISCOUNT, amount: -discount });
   }
   return rows.reduce((sum, row) => sum + row.amount, 0) === grandTotal ? rows : fallback;
 }

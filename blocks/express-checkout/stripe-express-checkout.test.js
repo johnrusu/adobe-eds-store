@@ -1743,7 +1743,6 @@ describe('stripe-express-checkout EDS block', () => {
   });
 
   test.each([
-    ['discount', (cart) => { cart.total.includingTax.value = 13.83; cart.discount.value = 2; }],
     ['rounding mismatch', (cart) => { cart.total.includingTax.value = 15.84; }],
     ['unknown fee', (cart) => { cart.total.includingTax.value = 18.83; }],
     ['missing taxes', (cart) => { delete cart.totalTax; }],
@@ -1815,7 +1814,7 @@ describe('stripe-express-checkout EDS block', () => {
     });
   });
 
-  test('preserves discounted cart totals without inventing negative line items', async () => {
+  test('includes a Discount row reflecting the applied coupon', async () => {
     const block = loadStripeExpressCheckoutBlock();
     const fixture = summaryFixture();
     fixture.cart.discount.value = 2;
@@ -1827,7 +1826,12 @@ describe('stripe-express-checkout EDS block', () => {
       expect.objectContaining({ amount: 1383 }),
     );
     expect(event.resolve).toHaveBeenCalledWith({
-      lineItems: [{ name: 'Grand Total', amount: 1383 }],
+      lineItems: [
+        { name: 'Subtotal', amount: 1000 },
+        { name: 'Shipping & Handling (Flat Rate - Fixed)', amount: 500 },
+        { name: 'Tax', amount: 83 },
+        { name: 'Discount', amount: -200 },
+      ],
     });
     expect(block.mocks.checkoutApi.setShippingMethods).not.toHaveBeenCalled();
   });
@@ -1889,10 +1893,11 @@ describe('stripe-express-checkout EDS block', () => {
     }
     await renderAndMount(block, fixture);
     const amount = discounted ? 1383 : 1583;
-    const lineItems = discounted ? [{ name: 'Grand Total', amount }] : [
+    const lineItems = [
       { name: 'Subtotal', amount: 1000 },
       { name: 'Shipping & Handling (Flat Rate - Fixed)', amount: 500 },
       { name: 'Tax', amount: 83 },
+      ...(discounted ? [{ name: 'Discount', amount: -200 }] : []),
     ];
     const expensiveMethod = {
       ...tableRateShippingMethod(),
@@ -1941,7 +1946,12 @@ describe('stripe-express-checkout EDS block', () => {
     expect(block.elements.update).toHaveBeenLastCalledWith({ amount: 1383 });
     expect(block.amazonElements.update).toHaveBeenLastCalledWith({ amount: 1383 });
     expect(event.resolve).toHaveBeenCalledWith(expect.objectContaining({
-      lineItems: [{ name: 'Grand Total', amount: 1383 }],
+      lineItems: [
+        { name: 'Subtotal', amount: 1000 },
+        { name: 'Shipping & Handling (Flat Rate - Fixed)', amount: 500 },
+        { name: 'Tax', amount: 83 },
+        { name: 'Discount', amount: -200 },
+      ],
     }));
   });
 

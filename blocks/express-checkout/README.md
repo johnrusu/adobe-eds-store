@@ -269,10 +269,10 @@ amount because each ECE row has only one amount. Tax already included in either
 row is removed from the separate Tax row.
 
 Amounts are compared in integer currency minor units. Missing data, incompatible
-currencies, negative components, or a breakdown that does not equal the Commerce
-grand total produce a single Grand Total row. Discounts are not sent as negative
-rows; a discounted cart uses the full breakdown only if its nonnegative amounts
-already reconcile. This is the storefront's policy, not a Stripe API restriction.
+currencies, negative non-discount components, or a breakdown that does not equal
+the Commerce grand total produce a single Grand Total row. A coupon discount is
+sent as a negative Discount row so the wallet's order details keep showing the
+full breakdown when a discount is applied.
 
 Wallet amounts and the Grand Total fallback use Magento's authoritative total,
 including when shipping data is partial. Estimated rates cannot replace that
