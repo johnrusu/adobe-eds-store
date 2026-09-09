@@ -225,9 +225,10 @@ describe('express-checkout shipping ownership', () => {
     expect(event.resolve).toHaveBeenCalled();
   });
 
-  test('persists a complete wallet address when Magento has no shipping yet', async () => {
+  test.each([true, false])('persists wallet shipping only on the cart (isGuest: %s)', async (isGuest) => {
     const ctx = loadShippingModule();
     ctx.state.checkoutData = ownedCheckout({
+      isGuest,
       email: '',
       billingAddress: null,
       shippingAddress: null,
@@ -254,7 +255,12 @@ describe('express-checkout shipping ownership', () => {
     };
     await ctx.shipping.handleShippingAddressChange(event);
 
-    expect(ctx.mocks.checkoutApi.setShippingAddress).toHaveBeenCalled();
+    expect(ctx.mocks.checkoutApi.setShippingAddress).toHaveBeenCalledWith({
+      address: expect.objectContaining({
+        street: ['1 Algorithm Way'],
+        saveInAddressBook: false,
+      }),
+    });
     expect(ctx.mocks.checkoutApi.estimateShippingMethods).not.toHaveBeenCalled();
     expect(ctx.mocks.checkoutApi.setShippingMethods).toHaveBeenCalled();
     expect(event.reject).not.toHaveBeenCalled();

@@ -13,6 +13,7 @@ import { h } from '@dropins/tools/preact.js';
 
 // Order Dropin Modules
 import * as orderApi from '@dropins/storefront-order/api.js';
+import { getCart } from '@dropins/storefront-checkout/api.js';
 
 // Checkout Dropin Libraries
 import {
@@ -24,6 +25,7 @@ import {
 
 // Payment Services Dropin
 import { PaymentMethodCode } from '@dropins/storefront-payment-services/api.js';
+import { reuseCustomerAddresses } from '../../scripts/checkout-addresses.js';
 
 // Block Utilities
 import {
@@ -232,6 +234,7 @@ export default async function decorate(block) {
     await displayOverlaySpinner(loaderRef, $loader, $loaderStatus);
     beginPaymentConfirmation();
     try {
+      await reuseCustomerAddresses(await getCart());
       // Payment Services credit card
       if (code === PaymentMethodCode.CREDIT_CARD) {
         if (!creditCardFormRef.current) {

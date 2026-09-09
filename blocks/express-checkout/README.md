@@ -26,6 +26,19 @@ order only after payment confirmation succeeds.
 No raw card or wallet credentials pass through this block or Adobe Commerce.
 Stripe.js remains loaded directly from `https://js.stripe.com/v3/`.
 
+Wallet shipping and billing inputs explicitly set `saveInAddressBook: false`
+(`save_in_address_book: false` in GraphQL) before order placement. Commerce
+defaults an omitted flag to `true`, which can create duplicate customer
+addresses when the order is submitted. Existing checkout addresses are retained;
+the regular checkout form still controls the shopper's choice to save a new address.
+
+Both normal checkout and Express Checkout call `scripts/checkout-addresses.js`
+before payment submission to compare unlinked cart addresses with the authenticated
+customer's saved addresses. A full match reuses `customer_address_id`; unmatched
+addresses keep their existing save choice. If verification fails, checkout reports
+the error before charging the customer. This helper must be copied with the block
+when installing it in another storefront.
+
 ## Module structure
 
 The public entry point remains `stripe-express-checkout.js`. Checkout imports and

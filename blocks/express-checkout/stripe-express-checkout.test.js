@@ -184,7 +184,7 @@ function transformStripeBlockSource(source) {
       defaultExport = name;
       return `function ${name}`;
     })
-    .replace(/export (const|function) (\w+)/g, (_match, kind, name) => {
+    .replace(/export (const|function|async function) (\w+)/g, (_match, kind, name) => {
       namedExports.push(name);
       return `${kind} ${name}`;
     })
@@ -443,6 +443,7 @@ function loadStripeExpressCheckoutBlock({
         refreshCart: jest.fn().mockResolvedValue(null),
       },
       checkoutApi: {
+        fetchGraphQl: jest.fn().mockResolvedValue({ data: { customer: { addresses: [] } } }),
         setPaymentMethod: jest.fn().mockResolvedValue({
           selectedPaymentMethod: {
             code: 'oope_stripe',
@@ -507,7 +508,7 @@ function loadStripeExpressCheckoutBlock({
     }).runInContext(context);
     execute((specifier) => {
       if (externals[specifier]) return externals[specifier];
-      if (!specifier.startsWith('./')) throw new Error(`Unexpected module: ${specifier}`);
+      if (!specifier.startsWith('.')) throw new Error(`Unexpected module: ${specifier}`);
       return loadModule(path.resolve(path.dirname(filename), specifier));
     }, module);
     return module.exports;
@@ -797,6 +798,7 @@ describe('stripe-express-checkout EDS block', () => {
         countryCode: 'GB',
         postcode: 'SW1A 1AA',
         telephone: '020 7946 0000',
+        saveInAddressBook: false,
       },
     });
     expect(block.mocks.checkoutApi.estimateShippingMethods).not.toHaveBeenCalled();
@@ -1057,6 +1059,105 @@ describe('stripe-express-checkout EDS block', () => {
     });
     expect(event.paymentFailed).not.toHaveBeenCalled();
     expect(block.mocks.orderApi.placeOrder).toHaveBeenCalledWith('cart_123');
+  });
+
+  test('does not save Link billing as another customer address before placing the order', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    block.document.cookie = 'auth_dropin_user_token=customer-token-123';
+    await renderAndMount(block, {
+      checkout: checkoutPayload({
+        isGuest: false,
+        shippingAddress: { ...commerceAddress(), id: 42, selectedShippingMethod: shippingMethod() },
+        billingAddress: null,
+      }),
+    });
+    block.mocks.checkoutApi.getCart.mockResolvedValue(checkoutPayload({ isGuest: false }));
+
+    const event = createConfirmEvent({ expressPaymentType: 'link' });
+    await getHandler(block, 'confirm')(event);
+
+    expect(block.mocks.checkoutApi.setShippingAddress).not.toHaveBeenCalled();
+    expect(block.mocks.checkoutApi.setBillingAddress).toHaveBeenCalledTimes(1);
+    expect(block.mocks.checkoutApi.setBillingAddress).toHaveBeenCalledWith({
+      address: expect.objectContaining({
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        street: ['1 Algorithm Way'],
+        saveInAddressBook: false,
+      }),
+    });
+    expect(block.mocks.checkoutApi.setBillingAddress.mock.invocationCallOrder[0]).toBeLessThan(
+      block.mocks.orderApi.placeOrder.mock.invocationCallOrder[0],
+    );
+    expect(block.mocks.orderApi.placeOrder).toHaveBeenCalledWith('cart_123');
+    expect(event.paymentFailed).not.toHaveBeenCalled();
+  });
+
+  test('retains selected saved shipping and billing addresses when placing a Link order', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    block.document.cookie = 'auth_dropin_user_token=customer-token-123';
+    await renderAndMount(block, {
+      checkout: checkoutPayload({
+        isGuest: false,
+        shippingAddress: { ...commerceAddress(), id: 42, selectedShippingMethod: shippingMethod() },
+        billingAddress: { ...commerceAddress(), id: 43, street: ['2 Billing Road'] },
+      }),
+    });
+
+    const event = createConfirmEvent({ expressPaymentType: 'link' });
+    await getHandler(block, 'confirm')(event);
+
+    expect(block.mocks.checkoutApi.setShippingAddress).not.toHaveBeenCalled();
+    expect(block.mocks.checkoutApi.setBillingAddress).not.toHaveBeenCalled();
+    expect(block.mocks.orderApi.placeOrder).toHaveBeenCalledWith('cart_123');
+    expect(event.paymentFailed).not.toHaveBeenCalled();
+  });
+
+  test('reuses a re-entered saved address before Link payment and order creation', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    await renderAndMount(block, { checkout: checkoutPayload({ isGuest: false }) });
+    block.mocks.checkoutApi.fetchGraphQl.mockResolvedValue({
+      data: {
+        customer: {
+          addresses: [{
+            id: 42,
+            firstname: 'Ada',
+            lastname: 'Lovelace',
+            street: ['1 Algorithm Way'],
+            city: 'London',
+            country_code: 'GB',
+            postcode: 'SW1A 1AA',
+            telephone: '020 7946 0000',
+          }],
+        },
+      },
+    });
+
+    await getHandler(block, 'confirm')(createConfirmEvent({ expressPaymentType: 'link' }));
+
+    expect(block.mocks.checkoutApi.setShippingAddress).toHaveBeenCalledWith({
+      customerAddressId: 42,
+    });
+    expect(block.mocks.checkoutApi.setBillingAddress).toHaveBeenCalledWith({
+      customerAddressId: 42,
+    });
+    expect(block.mocks.checkoutApi.setBillingAddress.mock.invocationCallOrder[0]).toBeLessThan(
+      block.stripeInstance.confirmPayment.mock.invocationCallOrder[0],
+    );
+    expect(block.mocks.orderApi.placeOrder).toHaveBeenCalledWith('cart_123');
+  });
+
+  test('does not charge or create a Link order if checking saved addresses fails', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    await renderAndMount(block, { checkout: checkoutPayload({ isGuest: false }) });
+    block.mocks.checkoutApi.fetchGraphQl.mockRejectedValue(new Error('Address lookup failed'));
+    const event = createConfirmEvent({ expressPaymentType: 'link' });
+
+    await getHandler(block, 'confirm')(event);
+
+    expect(block.stripeInstance.confirmPayment).not.toHaveBeenCalled();
+    expect(block.mocks.orderApi.placeOrder).not.toHaveBeenCalled();
+    expect(event.paymentFailed).toHaveBeenCalled();
   });
 
   test('does not place an order when Commerce keeps a fallback payment method', async () => {

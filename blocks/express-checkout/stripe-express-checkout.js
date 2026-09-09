@@ -18,6 +18,7 @@ import {
   SEPARATOR_CLASS,
 } from './constants.js';
 import { loadCSS } from '../../scripts/aem.js';
+import { reuseCustomerAddresses } from '../../scripts/checkout-addresses.js';
 import { state } from './checkout-state.js';
 import {
   isCompleteBillingAddress,
@@ -268,6 +269,7 @@ async function runConfirmation(event) {
       notifyPaymentFailure(event);
       return false;
     }
+    await reuseCustomerAddresses(state.checkoutData);
     await synchronizeWalletDetails(event);
     if (!(await syncAmountAfterWalletUpdate(event))) {
       return false;

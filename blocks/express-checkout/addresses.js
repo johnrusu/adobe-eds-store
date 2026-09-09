@@ -252,6 +252,9 @@ function toCommerceAddress(walletAddress, phone) {
     city: address.city,
     countryCode: address.country,
     postcode: address.postal_code,
+    // Commerce defaults this to true. Wallet details are for this order;
+    // saving them again would duplicate customer addresses at order placement.
+    saveInAddressBook: false,
     ...(address.state
       ? {
         region: address.state,
