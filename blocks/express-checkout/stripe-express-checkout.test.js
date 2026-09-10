@@ -116,6 +116,15 @@ function createElement(tagName) {
       delete element.attributes[name];
     }),
     getAttribute: jest.fn((name) => element.attributes[name] || null),
+    listeners: new Map(),
+    addEventListener: jest.fn((eventName, handler) => {
+      const handlers = element.listeners.get(eventName) || [];
+      handlers.push(handler);
+      element.listeners.set(eventName, handlers);
+    }),
+    dispatch: (eventName, payload) => Promise.all(
+      (element.listeners.get(eventName) || []).map((handler) => handler(payload)),
+    ),
   };
 
   return element;
@@ -382,10 +391,24 @@ function loadStripeExpressCheckoutBlock({
     on: jest.fn(),
     destroy: jest.fn(),
   };
+  const additionalWallets = Object.fromEntries(['applePay', 'googlePay', 'paypal', 'klarna'].map((method) => {
+    const element = { mount: jest.fn(), on: jest.fn(), destroy: jest.fn() };
+    return [method, {
+      element,
+      elements: {
+        create: jest.fn(() => element),
+        submit: jest.fn().mockResolvedValue({}),
+        update: jest.fn().mockResolvedValue(undefined),
+      },
+    }];
+  }));
   const elements = {
-    create: jest.fn((type, options = {}) => (options.shippingAddressRequired
-      ? amazonExpressCheckoutElement
-      : expressCheckoutElement)),
+    create: jest.fn((type, options = {}) => {
+      if (options.shippingAddressRequired) return amazonExpressCheckoutElement;
+      const method = Object.keys(additionalWallets)
+        .find((key) => options.paymentMethods?.[key] === 'auto');
+      return method ? additionalWallets[method].element : expressCheckoutElement;
+    }),
     submit: jest.fn().mockResolvedValue({}),
     update: jest.fn().mockResolvedValue(undefined),
   };
@@ -409,6 +432,9 @@ function loadStripeExpressCheckoutBlock({
     stripeInstance.elements
       .mockImplementationOnce(() => elements)
       .mockImplementationOnce(() => amazonElements);
+    Object.values(additionalWallets).forEach((wallet) => {
+      stripeInstance.elements.mockImplementationOnce(() => wallet.elements);
+    });
   }
 
   const fetch = jest.fn(async (url) => {
@@ -529,6 +555,7 @@ function loadStripeExpressCheckoutBlock({
     amazonElements,
     expressCheckoutElement,
     amazonExpressCheckoutElement,
+    additionalWallets,
     stripeInstance,
     uiRender,
     summary: loadModule(path.join(__dirname, 'order-summary.js')),
@@ -540,6 +567,7 @@ async function renderAndMount(block, {
   checkout,
   handleValidation,
   handleShippingValidation,
+  handleReadiness,
 } = {}) {
   const ctx = {
     replaceHTML: jest.fn((content) => {
@@ -547,7 +575,11 @@ async function renderAndMount(block, {
     }),
   };
 
-  block.exports.renderStripePaymentMethod(ctx, { handleValidation, handleShippingValidation });
+  block.exports.renderStripePaymentMethod(ctx, {
+    handleValidation,
+    handleShippingValidation,
+    handleReadiness,
+  });
   await flushPromises();
   await block.events.emit('cart/initialized', cart || cartPayload());
   await block.events.emit('checkout/initialized', checkout || checkoutPayload());
@@ -556,9 +588,9 @@ async function renderAndMount(block, {
 }
 
 function getHandler(block, eventName, wallet = 'default') {
-  const element = wallet === 'amazon'
+  const element = block.additionalWallets[wallet]?.element || (wallet === 'amazon'
     ? block.amazonExpressCheckoutElement
-    : block.expressCheckoutElement;
+    : block.expressCheckoutElement);
   const call = element.on.mock.calls.find(([name]) => name === eventName);
   return call?.[1];
 }
@@ -607,7 +639,7 @@ describe('stripe-express-checkout EDS block', () => {
     expect(block.stripeInstance.registerAppInfo).toHaveBeenCalledWith({
       name: 'Stripe Adobe Commerce App Builder',
     });
-    expect(block.stripeInstance.elements).toHaveBeenCalledTimes(2);
+    expect(block.stripeInstance.elements).toHaveBeenCalledTimes(6);
     expect(block.stripeInstance.elements).toHaveBeenCalledWith({
       mode: 'payment',
       amount: 4200,
@@ -627,7 +659,9 @@ describe('stripe-express-checkout EDS block', () => {
         emailRequired: false,
         phoneNumberRequired: false,
         shippingAddressRequired: false,
-        paymentMethods: { amazonPay: 'never' },
+        paymentMethods: {
+          link: 'auto', amazonPay: 'never', applePay: 'never', googlePay: 'never', paypal: 'never', klarna: 'never',
+        },
       }),
     );
     expect(block.elements.create).toHaveBeenCalledWith(
@@ -662,13 +696,21 @@ describe('stripe-express-checkout EDS block', () => {
     const expressBlock = block.document.querySelector('.stripe-express-checkout');
     expect(expressBlock.children.map((child) => child.className)).toEqual([
       'stripe-express-checkout-heading',
-      'stripe-express-checkout-loading',
-      'stripe-express-checkout-amazon stripe-express-checkout-loading',
+      'stripe-express-checkout-wallets',
       'stripe-express-checkout-status',
       'stripe-express-checkout-separator',
     ]);
+    expect(expressBlock.children[1].children.map((child) => child.className)).toEqual([
+      'stripe-express-checkout-link stripe-express-checkout-loading',
+      'stripe-express-checkout-amazon stripe-express-checkout-loading',
+      'stripe-express-checkout-apple-pay stripe-express-checkout-loading',
+      'stripe-express-checkout-google-pay stripe-express-checkout-loading',
+      'stripe-express-checkout-paypal stripe-express-checkout-loading',
+      'stripe-express-checkout-klarna stripe-express-checkout-loading',
+      'stripe-express-checkout-gate',
+    ]);
     expect(expressBlock.children[0].textContent).toBe('Express checkout');
-    expect(expressBlock.children[4].textContent).toBe('Or pay another way');
+    expect(expressBlock.children[3].textContent).toBe('Or pay another way');
     expect(block.localStorage.setItem).not.toHaveBeenCalled();
   });
 
@@ -750,7 +792,9 @@ describe('stripe-express-checkout EDS block', () => {
         emailRequired: true,
         phoneNumberRequired: true,
         shippingAddressRequired: false,
-        paymentMethods: { amazonPay: 'never' },
+        paymentMethods: {
+          link: 'auto', amazonPay: 'never', applePay: 'never', googlePay: 'never', paypal: 'never', klarna: 'never',
+        },
       }),
     );
     expect(block.elements.create).toHaveBeenCalledWith(
@@ -1239,7 +1283,7 @@ describe('stripe-express-checkout EDS block', () => {
       .toContain('Please fix the highlighted required fields');
   });
 
-  test('still opens Amazon Pay when only Magento shipping validation fails', async () => {
+  test('rejects the Amazon Pay click when the shipping form is invalid', async () => {
     const block = loadStripeExpressCheckoutBlock();
     const handleShippingValidation = jest.fn().mockReturnValue(false);
     await renderAndMount(block, { handleShippingValidation });
@@ -1247,9 +1291,36 @@ describe('stripe-express-checkout EDS block', () => {
 
     await getHandler(block, 'click', 'amazon')(clickEvent);
 
-    expect(handleShippingValidation).not.toHaveBeenCalled();
-    expect(clickEvent.reject).not.toHaveBeenCalled();
-    expect(clickEvent.resolve).toHaveBeenCalled();
+    expect(handleShippingValidation).toHaveBeenCalledTimes(1);
+    expect(clickEvent.reject).toHaveBeenCalledTimes(1);
+    expect(clickEvent.resolve).not.toHaveBeenCalled();
+  });
+
+  test('covers every wallet so an incomplete checkout cannot open one', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    const handleReadiness = jest.fn().mockReturnValue(false);
+    const handleShippingValidation = jest.fn().mockReturnValue(false);
+    await renderAndMount(block, { handleReadiness, handleShippingValidation });
+
+    const gate = block.document.querySelector('.stripe-express-checkout-gate');
+    expect(gate.hidden).toBe(false);
+    expect(block.document.querySelector('.stripe-express-checkout-amazon').inert).toBe(true);
+    expect(block.document.querySelector('#stripe-express-checkout-element').inert).toBe(true);
+
+    await gate.dispatch('click');
+
+    expect(handleShippingValidation).toHaveBeenCalledTimes(1);
+    expect(block.document.querySelector('.stripe-express-checkout-status').children[0].textContent)
+      .toContain('Please fix the highlighted required fields');
+  });
+
+  test('uncovers the wallets once the checkout fields are complete', async () => {
+    const block = loadStripeExpressCheckoutBlock();
+    const handleReadiness = jest.fn().mockReturnValue(true);
+    await renderAndMount(block, { handleReadiness });
+
+    expect(block.document.querySelector('.stripe-express-checkout-gate').hidden).toBe(true);
+    expect(block.document.querySelector('.stripe-express-checkout-amazon').inert).toBe(false);
   });
 
   test('does not confirm Magento-owned payment when the shipping form is invalid', async () => {
@@ -1503,7 +1574,9 @@ describe('stripe-express-checkout EDS block', () => {
       'expressCheckout',
       expect.objectContaining({
         shippingAddressRequired: false,
-        paymentMethods: { amazonPay: 'never' },
+        paymentMethods: {
+          link: 'auto', amazonPay: 'never', applePay: 'never', googlePay: 'never', paypal: 'never', klarna: 'never',
+        },
       }),
     );
     expect(block.elements.create).toHaveBeenCalledWith(
@@ -1518,7 +1591,7 @@ describe('stripe-express-checkout EDS block', () => {
     expect(block.amazonExpressCheckoutElement.destroy).toHaveBeenCalled();
     const defaultOptions = block.elements.create.mock.calls
       .map(([, options]) => options)
-      .filter((options) => options.shippingAddressRequired === false)
+      .filter((options) => options.paymentMethods.link === 'auto')
       .at(-1);
     const amazonOptions = block.elements.create.mock.calls
       .map(([, options]) => options)
@@ -1527,7 +1600,9 @@ describe('stripe-express-checkout EDS block', () => {
     expect(defaultOptions).toEqual(
       expect.objectContaining({
         shippingAddressRequired: false,
-        paymentMethods: { amazonPay: 'never' },
+        paymentMethods: {
+          link: 'auto', amazonPay: 'never', applePay: 'never', googlePay: 'never', paypal: 'never', klarna: 'never',
+        },
       }),
     );
     expect(amazonOptions).toEqual(
@@ -1644,7 +1719,7 @@ describe('stripe-express-checkout EDS block', () => {
     ).toContain('shipping address');
   });
 
-  test.each(['default', 'amazon'])(
+  test.each(['default', 'amazon', 'applePay', 'googlePay', 'paypal', 'klarna'])(
     'confirms %s using its own Elements instance',
     async (wallet) => {
       const block = loadStripeExpressCheckoutBlock({ separateWalletInstances: true });
@@ -1653,10 +1728,13 @@ describe('stripe-express-checkout EDS block', () => {
 
       await getHandler(block, 'confirm', wallet)(event);
 
-      const activeElements = wallet === 'amazon' ? block.amazonElements : block.elements;
-      const inactiveElements = wallet === 'amazon' ? block.elements : block.amazonElements;
+      const activeElements = block.additionalWallets[wallet]?.elements
+        || (wallet === 'amazon' ? block.amazonElements : block.elements);
+      const inactiveElements = [block.elements, block.amazonElements,
+        ...Object.values(block.additionalWallets).map((entry) => entry.elements)]
+        .filter((instance) => instance !== activeElements);
       expect(activeElements.submit).toHaveBeenCalledTimes(1);
-      expect(inactiveElements.submit).not.toHaveBeenCalled();
+      inactiveElements.forEach((instance) => expect(instance.submit).not.toHaveBeenCalled());
       expect(block.stripeInstance.createConfirmationToken).toHaveBeenCalledWith(
         expect.objectContaining({ elements: activeElements }),
       );
@@ -1691,7 +1769,7 @@ describe('stripe-express-checkout EDS block', () => {
     expect(confirm.paymentFailed).not.toHaveBeenCalled();
   });
 
-  test('updates both distinct Elements instances when the cart amount changes', async () => {
+  test('updates every distinct Elements instance when the cart amount changes', async () => {
     const block = loadStripeExpressCheckoutBlock({ separateWalletInstances: true });
     await renderAndMount(block);
     await block.events.emit(
@@ -1703,6 +1781,9 @@ describe('stripe-express-checkout EDS block', () => {
 
     expect(block.elements.update).toHaveBeenCalledTimes(1);
     expect(block.amazonElements.update).toHaveBeenCalledTimes(1);
+    Object.values(block.additionalWallets).forEach(({ elements: instance }) => {
+      expect(instance.update.mock.calls).toEqual(block.elements.update.mock.calls);
+    });
     expect(block.elements.update).toHaveBeenCalledWith({ amount: 5200 });
     expect(block.amazonElements.update).toHaveBeenCalledWith({ amount: 5200 });
   });
@@ -1737,11 +1818,17 @@ describe('stripe-express-checkout EDS block', () => {
     await block.events.emit('cart/reset');
     expect(block.expressCheckoutElement.destroy).toHaveBeenCalledTimes(1);
     expect(block.amazonExpressCheckoutElement.destroy).toHaveBeenCalledTimes(1);
+    Object.values(block.additionalWallets).forEach(({ element }) => {
+      expect(element.destroy).toHaveBeenCalledTimes(1);
+    });
 
     await block.events.emit('cart/initialized', cartPayload({ id: 'cart_456' }));
     await block.events.emit('checkout/initialized', checkoutPayload({ id: 'cart_456' }));
     await waitForMount(block, 2);
     expect(block.amazonExpressCheckoutElement.mount).toHaveBeenCalledTimes(2);
+    Object.values(block.additionalWallets).forEach(({ element }) => {
+      expect(element.mount).toHaveBeenCalledTimes(2);
+    });
     expect(block.exports.validateStripePayment()).toBe(false);
   });
 
@@ -1751,13 +1838,15 @@ describe('stripe-express-checkout EDS block', () => {
       cart: cartPayload({ isVirtual: true }),
       checkout: checkoutPayload({ isVirtual: true, shippingAddress: null }),
     });
-    expect(block.stripeInstance.elements).toHaveBeenCalledTimes(1);
+    expect(block.stripeInstance.elements).toHaveBeenCalledTimes(5);
     expect(block.amazonExpressCheckoutElement.mount).not.toHaveBeenCalled();
     expect(block.elements.create).toHaveBeenCalledWith(
       'expressCheckout',
       expect.objectContaining({
         shippingAddressRequired: false,
-        paymentMethods: { amazonPay: 'never' },
+        paymentMethods: {
+          link: 'auto', amazonPay: 'never', applePay: 'never', googlePay: 'never', paypal: 'never', klarna: 'never',
+        },
       }),
     );
   });

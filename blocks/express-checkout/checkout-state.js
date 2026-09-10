@@ -65,4 +65,8 @@ export const state = {
   validateCheckout: null,
   /** @type {(function(): Promise<boolean>)|null} Magento shipping/billing form validator. */
   validateShipping: null,
+  /** @type {(function(): boolean)|null} Side-effect free checkout readiness probe. */
+  isCheckoutReady: null,
+  /** @type {Element|null} Overlay that absorbs wallet clicks while gated. */
+  gateOverlay: null,
 };

@@ -1,5 +1,5 @@
 import { ELEMENT_CONTAINER_ID } from './constants.js';
-import { AMAZON_PAY_DISABLED, createAmazonPayWallet } from './amazon-pay.js';
+import { createAmazonPayWallet } from './amazon-pay.js';
 
 /**
  * A wallet's configuration and mounted resources. Policy callbacks are pure;
@@ -16,22 +16,43 @@ import { AMAZON_PAY_DISABLED, createAmazonPayWallet } from './amazon-pay.js';
  * @property {boolean} available Most recently reported wallet availability.
  */
 
-/** @type {WalletDescriptor} Payment-only wallet group backed by Magento shipping. */
-export const primaryWallet = {
-  containerId: ELEMENT_CONTAINER_ID,
-  containerClassName: '',
-  collectsShipping: false,
-  isEnabled: () => true,
-  getOptions: (fields) => ({
-    ...fields,
-    shippingAddressRequired: false,
-    paymentMethods: AMAZON_PAY_DISABLED,
-  }),
-  container: null,
-  element: null,
-  elements: null,
-  available: false,
-};
+const PAYMENT_METHODS = ['link', 'amazonPay', 'applePay', 'googlePay', 'paypal', 'klarna'];
 
-/** @type {WalletDescriptor[]} Render and mount order matches the original checkout. */
-export const wallets = [primaryWallet, createAmazonPayWallet()];
+/**
+ * Give each payment-only wallet its own grid item while keeping Magento shipping.
+ * @param {string} method Stripe payment method name.
+ * @param {string} name CSS suffix for the wallet.
+ * @returns {WalletDescriptor} Unmounted wallet.
+ */
+function createPaymentWallet(method, name) {
+  return {
+    containerId: method === 'link' ? ELEMENT_CONTAINER_ID : `stripe-express-checkout-${name}`,
+    containerClassName: `stripe-express-checkout-${name}`,
+    collectsShipping: false,
+    isEnabled: () => true,
+    getOptions: (fields) => ({
+      ...fields,
+      shippingAddressRequired: false,
+      paymentMethods: Object.fromEntries(PAYMENT_METHODS.map((key) => [
+        key, key === method ? 'auto' : 'never',
+      ])),
+    }),
+    container: null,
+    element: null,
+    elements: null,
+    available: false,
+  };
+}
+
+/** @type {WalletDescriptor} Link retains the primary mount and lifecycle reference. */
+export const primaryWallet = createPaymentWallet('link', 'link');
+
+/** @type {WalletDescriptor[]} DOM order matches the visual and keyboard order. */
+export const wallets = [
+  primaryWallet,
+  createAmazonPayWallet(),
+  createPaymentWallet('applePay', 'apple-pay'),
+  createPaymentWallet('googlePay', 'google-pay'),
+  createPaymentWallet('paypal', 'paypal'),
+  createPaymentWallet('klarna', 'klarna'),
+];

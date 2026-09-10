@@ -50,6 +50,10 @@ export const STATUS_CLASS = 'stripe-express-checkout-status';
 
 export const SEPARATOR_CLASS = 'stripe-express-checkout-separator';
 
+export const WALLETS_CLASS = 'stripe-express-checkout-wallets';
+
+export const GATE_CLASS = 'stripe-express-checkout-gate';
+
 export const CHECKOUT_SELECTOR = '.commerce-checkout';
 
 /** Currency conversion rules. All amounts sent to Stripe use minor units. */
@@ -173,6 +177,7 @@ export const MESSAGES = Object.freeze({
   UNAVAILABLE: 'Express Checkout is unavailable. Please use the card payment form below.',
   HEADING: 'Express checkout',
   SEPARATOR: 'Or pay another way',
+  GATE_LABEL: 'Complete the required checkout fields to use Express Checkout',
 });
 
 /** Developer diagnostics; never include payment credentials in these messages. */

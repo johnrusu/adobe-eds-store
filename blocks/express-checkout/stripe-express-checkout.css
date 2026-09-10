@@ -21,11 +21,67 @@
   opacity: 0;
 }
 
+.stripe-express-checkout .stripe-express-checkout-wallets {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: var(--spacing-small);
+  min-width: 0;
+  position: relative;
+}
+
+.stripe-express-checkout .stripe-express-checkout-wallets > .StripeElement {
+  min-width: 0;
+  width: 100%;
+}
+
+.stripe-express-checkout .stripe-express-checkout-link {
+  order: 1;
+}
+
 .stripe-express-checkout .stripe-express-checkout-amazon {
-  margin-top: var(--spacing-small);
+  order: 2;
+}
+
+.stripe-express-checkout .stripe-express-checkout-apple-pay {
+  order: 3;
+}
+
+.stripe-express-checkout .stripe-express-checkout-google-pay {
+  order: 4;
+}
+
+.stripe-express-checkout .stripe-express-checkout-paypal {
+  order: 5;
+}
+
+.stripe-express-checkout .stripe-express-checkout-klarna {
+  order: 6;
+}
+
+@media (min-width: 600px) {
+  .stripe-express-checkout .stripe-express-checkout-wallets {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  }
 }
 
 .stripe-express-checkout-hidden {
+  display: none;
+}
+
+/* Absorbs the click before it reaches a wallet button inside Stripe's iframe. */
+.stripe-express-checkout .stripe-express-checkout-gate {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  inset: 0;
+  padding: 0;
+  position: absolute;
+  width: 100%;
+  z-index: 1;
+}
+
+.stripe-express-checkout .stripe-express-checkout-gate[hidden] {
   display: none;
 }
 

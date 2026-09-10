@@ -49,7 +49,7 @@ the exported `decorate`, `renderStripePaymentMethod`, `handleStripePayment`, and
   confirmation, order placement, and the checkout slot.
 - `amazon-pay.js` owns Amazon eligibility, payment-method configuration, and
   compatibility with Amazon address fields and street-line fallbacks.
-- `wallets.js` defines the payment-only wallet group and the ordered wallet
+- `wallets.js` defines individual payment-only wallets and the ordered wallet
   descriptors. Each descriptor owns its container, Elements instance, mounted
   element, and availability. Shared lifecycle code consumes these descriptors.
 - `addresses.js` reads Commerce addresses and converts wallet, Commerce, and
@@ -130,6 +130,12 @@ CheckoutProvider.render(PaymentMethods, {
 The block renders **Express checkout**, the wallet buttons, and an **Or pay
 another way** divider before the regular method selector and Payment Element.
 
+Each wallet is a separate grid item under `.stripe-express-checkout-wallets`.
+The DOM sequence and class-based CSS `order` are Link, Amazon Pay, Apple Pay,
+Google Pay, PayPal, and Klarna. Unavailable wallets are hidden; the remaining
+wallets retain their relative order. Separate Elements let the CSS grid place
+Amazon between Link and the other wallets while preserving its shipping policy.
+
 Do not replace the `oope_stripe` payment-method slot. That slot continues to
 render the regular Stripe Payment Element and use the normal Place Order button.
 The Express Checkout `confirm` event owns only the wallet attempt and calls the
@@ -204,9 +210,9 @@ PaymentIntent requests from authenticated storefronts forward the
 
 ## Shipping behavior
 
-- Link, Apple Pay, Google Pay, PayPal, and Klarna mount in a separate
-  Express Checkout Element with `shippingAddressRequired: false` and
-  `amazonPay: 'never'`. Those wallets show email/phone/payment only.
+- Link, Apple Pay, Google Pay, PayPal, and Klarna each mount in their own
+  Express Checkout Element with `shippingAddressRequired: false`. Each enables
+  only its own payment method. Those wallets show email/phone/payment only.
 - Amazon Pay mounts in a second Element with `shippingAddressRequired: true`.
   Amazon's JS-only `onInitCheckout` is PayAndShip and fails with
   `No address present in onInit callback` if shipping is off. Stripe does not
@@ -327,8 +333,8 @@ guest and authenticated carts, shipping events, remounting, the blocking
 overlay, currency conversion, checkout validation, status feedback, and
 customer-facing load errors.
 
-The suite also covers distinct Elements instances for Amazon and the payment-only
-wallet group, switching from Amazon to Link, updating both wallet totals, isolated
+The suite also covers distinct Elements instances for every wallet,
+switching from Amazon to Link, updating all wallet totals, isolated
 load failures, reset/remount cleanup, virtual carts, and Amazon address aliases.
 The VM harness loads the local module graph and mocks only the external SDKs and
 browser APIs; the extracted production modules execute in the tests.

@@ -16,6 +16,8 @@ import {
   HEADING_CLASS,
   STATUS_CLASS,
   SEPARATOR_CLASS,
+  WALLETS_CLASS,
+  GATE_CLASS,
 } from './constants.js';
 import { loadCSS } from '../../scripts/aem.js';
 import { reuseCustomerAddresses } from '../../scripts/checkout-addresses.js';
@@ -89,19 +91,62 @@ function getElementsOptions() {
 
 /**
  * Validate Magento-owned checkout fields before opening or confirming a wallet.
- * Terms apply to every wallet. Shipping/billing forms apply only when Magento
- * owns the address (Link and the other payment-only wallets).
- * @param {boolean} collectShipping Whether this wallet collects shipping.
+ * Terms and the shipping/billing forms apply to every wallet, Amazon included.
  * @returns {Promise<string|null>} Customer-facing error, or null when valid.
  */
-async function getCheckoutValidationError(collectShipping) {
-  if (!collectShipping && state.validateShipping && !(await state.validateShipping())) {
+async function getCheckoutValidationError() {
+  if (state.validateShipping && !(await state.validateShipping())) {
     return MESSAGES.CHECKOUT_FIELDS_REQUIRED;
   }
   if (state.validateCheckout && !(await state.validateCheckout())) {
     return MESSAGES.TERMS_REQUIRED;
   }
   return null;
+}
+
+/**
+ * Report whether the wallets must stay shut, without touching the form.
+ * This runs on every cart and checkout update, so it only reads state; the
+ * visible field errors belong to a real click.
+ * @returns {boolean}
+ */
+function isExpressCheckoutGated() {
+  if (!hasRequiredMagentoShipping()) {
+    return true;
+  }
+  return state.isCheckoutReady ? !state.isCheckoutReady() : false;
+}
+
+/**
+ * Cover the wallets so a click cannot reach the button inside Stripe's iframe.
+ * Stripe opens Amazon Pay from the raw click gesture, before the `click` event
+ * we handle, so `reject()` cannot keep that window shut. Blocking the click
+ * itself is the only way to validate before any wallet appears.
+ * @returns {void}
+ */
+function syncWalletGate() {
+  const gated = isExpressCheckoutGated();
+  if (state.gateOverlay) {
+    state.gateOverlay.hidden = !gated;
+  }
+  wallets.forEach((wallet) => {
+    if (wallet.container) {
+      wallet.container.inert = gated;
+    }
+  });
+}
+
+/**
+ * Explain an intercepted click with the same errors a real click would raise.
+ * @returns {Promise<void>}
+ */
+async function handleGatedWalletClick() {
+  const validationError = await getCheckoutValidationError();
+  if (!validationError) {
+    syncWalletGate();
+    return;
+  }
+  await setPaymentStatus(validationError, STATUS.ERROR);
 }
 
 /**
@@ -242,7 +287,7 @@ async function runConfirmation(event) {
     if (!cartId) {
       throw new Error(MESSAGES.CART_UNAVAILABLE);
     }
-    const validationError = await getCheckoutValidationError(state.walletShippingRequired);
+    const validationError = await getCheckoutValidationError();
     if (validationError) {
       await setPaymentStatus(validationError, STATUS.ERROR);
       notifyPaymentFailure(event);
@@ -438,7 +483,7 @@ function registerExpressCheckoutHandlers(wallet) {
     state.walletReauthorizationRequired = false;
     setCheckoutBlocked(true);
     activateWallet(wallet);
-    const checkoutError = await getCheckoutValidationError(collectShipping);
+    const checkoutError = await getCheckoutValidationError();
     const money = getWalletElementsAmount();
     const validationError = checkoutError
       || (money.currency !== state.currentCurrency ? MESSAGES.CURRENCY_CHANGED : null);
@@ -557,6 +602,7 @@ async function mountExpressCheckout() {
       wallet.element.mount(`#${wallet.containerId}`);
     });
     state.mountedConfigurationKey = getConfigurationKey();
+    syncWalletGate();
   } catch (error) {
     console.warn(DIAGNOSTICS.ELEMENT_INIT_FAILED, error);
     hideExpressCheckout(false);
@@ -596,9 +642,12 @@ async function synchronizeMountedElement() {
   if (money.currency !== state.currentCurrency) {
     destroyExpressCheckout();
     await mountExpressCheckout();
-  } else if (money.amount !== state.currentAmount) {
+    return;
+  }
+  if (money.amount !== state.currentAmount) {
     await updateMountedElementsAmount(money.amount);
   }
+  syncWalletGate();
 }
 
 // Public checkout integration
@@ -609,6 +658,7 @@ async function synchronizeMountedElement() {
  * @param {Object} [options] Checkout integration settings.
  * @param {function(): Promise<boolean>} [options.handleValidation] Terms validation callback.
  * @param {function(): Promise<boolean>} [options.handleShippingValidation] Magento form validation.
+ * @param {function(): boolean} [options.handleReadiness] Side-effect free readiness probe.
  * @returns {void}
  */
 function renderStripePaymentMethod(ctx, options = {}) {
@@ -616,6 +666,7 @@ function renderStripePaymentMethod(ctx, options = {}) {
   clearPaymentStatus();
   state.validateCheckout = options.handleValidation || null;
   state.validateShipping = options.handleShippingValidation || null;
+  state.isCheckoutReady = options.handleReadiness || null;
   const content = document.createElement('div');
   content.className = BLOCK_CLASS;
   state.blockContainer = content;
@@ -636,11 +687,21 @@ function renderStripePaymentMethod(ctx, options = {}) {
   separator.textContent = MESSAGES.SEPARATOR;
   separator.setAttribute('role', 'separator');
   separator.setAttribute('aria-label', MESSAGES.SEPARATOR);
+  const walletGroup = document.createElement('div');
+  walletGroup.className = WALLETS_CLASS;
+  wallets.forEach((wallet) => walletGroup.appendChild(wallet.container));
+  state.gateOverlay = document.createElement('button');
+  state.gateOverlay.type = 'button';
+  state.gateOverlay.className = GATE_CLASS;
+  state.gateOverlay.setAttribute('aria-label', MESSAGES.GATE_LABEL);
+  state.gateOverlay.addEventListener('click', handleGatedWalletClick);
+  walletGroup.appendChild(state.gateOverlay);
   content.appendChild(heading);
-  wallets.forEach((wallet) => content.appendChild(wallet.container));
+  content.appendChild(walletGroup);
   content.appendChild(state.statusContainer);
   content.appendChild(separator);
   ctx.replaceHTML(content);
+  syncWalletGate();
   requestAnimationFrame(() => {
     synchronizeMountedElement();
   });
