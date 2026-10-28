@@ -714,13 +714,13 @@ describe('stripe-express-checkout EDS block', () => {
     expect(block.localStorage.setItem).not.toHaveBeenCalled();
   });
 
-  test('applies nested manual capture from init-params', async () => {
+  test('passes manual capture from init-params as top-level Elements captureMethod', async () => {
     const block = loadStripeExpressCheckoutBlock({
       initParams: initParamsPayload({
         elementsOptions: {
+          captureMethod: 'manual',
           paymentMethodOptions: {
             us_bank_account: { verification_method: 'instant' },
-            card: { capture_method: 'manual' },
           },
         },
       }),
@@ -728,16 +728,18 @@ describe('stripe-express-checkout EDS block', () => {
 
     await renderAndMount(block);
 
-    expect(block.stripeInstance.elements).toHaveBeenCalledWith({
-      mode: 'payment',
-      amount: 4200,
-      currency: 'usd',
-      paymentMethodOptions: {
-        us_bank_account: { verification_method: 'instant' },
-        card: { capture_method: 'manual' },
-      },
+    expect(block.stripeInstance.elements).toHaveBeenCalledTimes(6);
+    block.stripeInstance.elements.mock.calls.forEach(([options]) => {
+      expect(options).toEqual({
+        mode: 'payment',
+        amount: 4200,
+        currency: 'usd',
+        captureMethod: 'manual',
+        paymentMethodOptions: {
+          us_bank_account: { verification_method: 'instant' },
+        },
+      });
     });
-    expect(block.stripeInstance.elements.mock.calls[0][0].captureMethod).toBeUndefined();
   });
 
   test.each([
@@ -757,14 +759,13 @@ describe('stripe-express-checkout EDS block', () => {
     );
   });
 
-  test('does not pass a stale top-level Elements captureMethod', async () => {
+  test('passes automatic capture from init-params as top-level Elements captureMethod', async () => {
     const block = loadStripeExpressCheckoutBlock({
       initParams: initParamsPayload({
         elementsOptions: {
-          captureMethod: 'manual',
+          captureMethod: 'automatic',
           paymentMethodOptions: {
             us_bank_account: { verification_method: 'instant' },
-            card: { capture_method: 'manual' },
           },
         },
       }),
@@ -772,12 +773,7 @@ describe('stripe-express-checkout EDS block', () => {
 
     await renderAndMount(block);
 
-    expect(block.stripeInstance.elements.mock.calls[0][0].captureMethod).toBeUndefined();
-    expect(
-      block.stripeInstance.elements.mock.calls[0][0].paymentMethodOptions.card,
-    ).toEqual({
-      capture_method: 'manual',
-    });
+    expect(block.stripeInstance.elements.mock.calls[0][0].captureMethod).toBe('automatic');
   });
 
   test('keeps Link without shipping and Amazon Pay with shipping', async () => {

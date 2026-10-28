@@ -76,11 +76,12 @@ loadCSS(STYLESHEET_URL);
  */
 function getElementsOptions() {
   const money = getCartMoney();
-  const paymentMethodOptions = state.initParams?.elementsOptions?.paymentMethodOptions;
+  const { captureMethod, paymentMethodOptions } = state.initParams?.elementsOptions || {};
   return {
     mode: 'payment',
     amount: money.amount,
     currency: money.currency,
+    ...(captureMethod ? { captureMethod } : {}),
     ...(paymentMethodOptions
       ? {
         paymentMethodOptions,

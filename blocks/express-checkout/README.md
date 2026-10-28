@@ -171,6 +171,7 @@ The block expects `backend_integration_url` to contain:
   "options": {},
   "appInfo": {},
   "elementsOptions": {
+    "captureMethod": "automatic",
     "paymentMethodOptions": {
       "us_bank_account": {
         "verification_method": "instant",
@@ -181,12 +182,13 @@ The block expects `backend_integration_url` to contain:
 }
 ```
 
-Do not pass top-level Elements `captureMethod`. For manual capture, App Builder
-nests `capture_method: "manual"` on authorize-only methods inside
-`paymentMethodOptions` so wallets that cannot authorize separately remain
-visible. Per-method `setup_future_usage` is omitted when saved payment methods
-are disabled. These options, including US bank-account verification, must
-match the PaymentIntent created by the backend.
+`captureMethod` is `"manual"` when the merchant selects authorize-only capture.
+The block passes it as the top-level `captureMethod` of `stripe.elements()`;
+Stripe.js rejects confirmation when it differs from the PaymentIntent's
+`capture_method`. Do not nest `capture_method` inside `paymentMethodOptions`.
+Per-method `setup_future_usage` is omitted when saved payment methods are
+disabled. These options, including US bank-account verification, must match
+the PaymentIntent created by the backend.
 
 The `payment-intent` request adds `confirmationTokenId` while retaining the
 existing cart context:
@@ -316,8 +318,7 @@ Element, and tells the shopper to use the regular card form.
 
 ## Capture modes
 
-The block supports automatic and manual capture. The public `init-params` response supplies nested `paymentMethodOptions` that match the PaymentIntent action. The block forwards those options and ignores a top-level
-`captureMethod` if one is still present:
+The block supports automatic and manual capture. The public `init-params` response supplies `captureMethod` and `paymentMethodOptions` that match the PaymentIntent action. The block forwards both to the deferred Elements:
 
 - Automatic capture confirms to `succeeded` or `processing`; the existing
   order-placed handler links and invoices the payment.

@@ -487,9 +487,12 @@ async function mountPaymentForm(mountId) {
   try {
     stripe = Stripe(initParams.publishableKey, initParams.options);
     stripe.registerAppInfo(initParams.appInfo);
+    // Must match the PaymentIntent's capture_method (manual capture mode).
+    const { captureMethod } = initParams.elementsOptions || {};
     elements = stripe.elements({
       mode: 'payment',
       ...getStripeAmount(),
+      ...(captureMethod ? { captureMethod } : {}),
     });
 
     // Make sure the loading container is removed before mounting
