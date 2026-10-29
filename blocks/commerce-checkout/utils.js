@@ -17,6 +17,9 @@ export const displayOverlaySpinner = async (loaderRef, $loader, $loaderStatus) =
   // together with the live region attached to it.
   if ($loaderStatus) $loaderStatus.textContent = 'Placing your order…';
 
+  // Shown under the spinner via CSS (`attr(data-message)`) for sighted users
+  $loader.dataset.message = 'Placing your order…';
+
   if (loaderRef.current) return;
 
   loaderRef.current = await UI.render(ProgressSpinner, {

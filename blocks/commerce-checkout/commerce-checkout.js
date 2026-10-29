@@ -244,7 +244,18 @@ export default async function decorate(block) {
     TERMS_AND_CONDITIONS_FORM_NAME,
   ].every(isFormReady);
 
+  // `inert` blocks mouse, keyboard and assistive-tech interaction with the whole
+  // subtree, including the Stripe iframe, which the overlay spinner alone does not.
+  let isPlacingOrder = false;
+  const setCheckoutBusy = (busy) => {
+    $content.inert = busy;
+    $content.setAttribute('aria-busy', String(busy));
+  };
+
   const handlePlaceOrder = async ({ cartId, code }) => {
+    if (isPlacingOrder) return;
+    isPlacingOrder = true;
+    setCheckoutBusy(true);
     await displayOverlaySpinner(loaderRef, $loader, $loaderStatus);
     beginPaymentConfirmation();
     try {
@@ -273,6 +284,8 @@ export default async function decorate(block) {
     } finally {
       endPaymentConfirmation();
       removeOverlaySpinner(loaderRef, $loader, $loaderStatus);
+      setCheckoutBusy(false);
+      isPlacingOrder = false;
     }
   };
 

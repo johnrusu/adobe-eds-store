@@ -125,12 +125,14 @@
 
 .checkout__loader {
     align-items: center;
-    background: var(--color-neutral-50);
+    background: color-mix(in srgb, var(--color-neutral-50) 85%, transparent);
+    cursor: progress;
     display: flex;
+    flex-direction: column;
+    gap: var(--spacing-small);
     height: 100vh;
     justify-content: center;
     left: 0;
-    opacity: 0.5;
     position: fixed;
     top: 0;
     width: 100%;
@@ -139,6 +141,12 @@
 
 .checkout__loader:empty {
     display: none;
+}
+
+.checkout__loader::after {
+    color: var(--color-neutral-800);
+    content: attr(data-message);
+    font: var(--type-body-1-strong-font);
 }
 
 .checkout__loader-status {
