@@ -3,7 +3,10 @@
 import * as orderApi from '@dropins/storefront-order/api.js';
 import { events } from '@dropins/tools/event-bus.js';
 import {
+  ARIA,
+  BUTTON_TYPE,
   STATUS,
+  STRIPE_JS_URL,
   STYLESHEET_URL,
   DIAGNOSTICS,
   STRIPE,
@@ -19,8 +22,9 @@ import {
   WALLETS_CLASS,
   GATE_CLASS,
 } from './constants.js';
+import { ELEMENTS_MODE_PAYMENT } from '../stripe-shared/constants.js';
 import { loadCSS } from '../../scripts/aem.js';
-import { reuseCustomerAddresses } from '../../scripts/checkout-addresses.js';
+import { reuseCustomerAddresses } from './checkout-addresses.js';
 import { state } from './checkout-state.js';
 import {
   isCompleteBillingAddress,
@@ -45,14 +49,14 @@ import {
   handleShippingRateChange,
 } from './shipping.js';
 import {
-  getActiveCartId,
+  getCurrentCartId,
   createPaymentIntent,
-  persistStripePaymentMethod,
-  isStripePaymentMethodAvailable,
-  loadStripeJs,
+  selectStripePaymentMethod,
+  isStripeMethodOffered,
   parseRuntimeConfig,
   fetchInitParams,
 } from './stripe-api.js';
+import { loadStripeJs } from '../stripe-shared/stripe-helpers.js';
 import { wallets, primaryWallet } from './wallets.js';
 import {
   getWalletLineItems,
@@ -78,7 +82,7 @@ function getElementsOptions() {
   const money = getCartMoney();
   const { captureMethod, paymentMethodOptions } = state.initParams?.elementsOptions || {};
   return {
-    mode: 'payment',
+    mode: ELEMENTS_MODE_PAYMENT,
     amount: money.amount,
     currency: money.currency,
     ...(captureMethod ? { captureMethod } : {}),
@@ -182,7 +186,7 @@ function getConfigurationKey() {
   syncMagentoShippingRates();
   const options = getSharedExpressCheckoutFields();
   return JSON.stringify({
-    cartId: getActiveCartId(),
+    cartId: getCurrentCartId(),
     billingAddressRequired: options.billingAddressRequired,
     emailRequired: options.emailRequired,
     phoneNumberRequired: options.phoneNumberRequired,
@@ -284,7 +288,7 @@ async function runConfirmation(event) {
   setCheckoutBlocked(true);
   try {
     await setPaymentStatus(MESSAGES.PROCESSING);
-    const cartId = getActiveCartId();
+    const cartId = getCurrentCartId();
     if (!cartId) {
       throw new Error(MESSAGES.CART_UNAVAILABLE);
     }
@@ -381,7 +385,7 @@ async function runConfirmation(event) {
       return false;
     }
     const paymentIntentData = await createPaymentIntent(confirmationTokenId);
-    await persistStripePaymentMethod(paymentIntentData.client_secret);
+    await selectStripePaymentMethod(paymentIntentData.client_secret);
     const confirmParams = {
       confirmation_token: confirmationTokenId,
     };
@@ -412,7 +416,7 @@ async function runConfirmation(event) {
 
     // Payment Methods can auto-sync its previously selected fallback method.
     // Reassert and verify Stripe immediately before Commerce creates the order.
-    await persistStripePaymentMethod(paymentIntentData.client_secret);
+    await selectStripePaymentMethod(paymentIntentData.client_secret);
     await setPaymentStatus(MESSAGES.CREATING_ORDER);
     const order = await orderApi.placeOrder(cartId);
     if (!order) {
@@ -554,10 +558,14 @@ function createStripe(publishableKey, options) {
   try {
     return Stripe(publishableKey, options);
   } catch (error) {
-    if (!options?.apiVersion || !/apiVersion/i.test(error?.message || '')) {
+    if (
+      !options?.[STRIPE.API_VERSION_OPTION]
+      || !STRIPE.API_VERSION_REFUSED_PATTERN.test(error?.message || '')
+    ) {
       throw error;
     }
-    const { apiVersion: _apiVersion, ...releaseOptions } = options;
+    const releaseOptions = { ...options };
+    delete releaseOptions[STRIPE.API_VERSION_OPTION];
     return Stripe(publishableKey, releaseOptions);
   }
 }
@@ -573,7 +581,7 @@ async function mountExpressCheckout() {
     || !primaryWallet.container
     || !state.checkoutData
     || !state.cartData
-    || !isStripePaymentMethodAvailable()
+    || !isStripeMethodOffered()
   ) {
     return;
   }
@@ -589,7 +597,7 @@ async function mountExpressCheckout() {
     wallet.container.classList.add(LOADING_CLASS);
   });
   try {
-    await loadStripeJs();
+    await loadStripeJs(STRIPE_JS_URL);
     state.runtimeConfig = parseRuntimeConfig();
     [state.initParams] = await Promise.all([
       fetchInitParams(state.runtimeConfig.getInitParamsUrl),
@@ -641,7 +649,7 @@ async function synchronizeMountedElement() {
   if (!primaryWallet.container || state.modalOpen || state.confirmationInProgress) {
     return;
   }
-  if (!isStripePaymentMethodAvailable()) {
+  if (!isStripeMethodOffered()) {
     destroyExpressCheckout();
     clearPaymentStatus();
     hideExpressCheckout();
@@ -706,16 +714,16 @@ function renderStripePaymentMethod(ctx, options = {}) {
   const separator = document.createElement('div');
   separator.className = SEPARATOR_CLASS;
   separator.textContent = MESSAGES.SEPARATOR;
-  separator.setAttribute('role', 'separator');
-  separator.setAttribute('aria-label', MESSAGES.SEPARATOR);
+  separator.setAttribute(ARIA.ROLE, ARIA.ROLE_SEPARATOR);
+  separator.setAttribute(ARIA.LABEL, MESSAGES.SEPARATOR);
   const walletGroup = document.createElement('div');
   walletGroup.className = WALLETS_CLASS;
   wallets.forEach((wallet) => walletGroup.appendChild(wallet.container));
   state.gateOverlay = document.createElement('button');
-  state.gateOverlay.type = 'button';
+  state.gateOverlay.type = BUTTON_TYPE;
   state.gateOverlay.className = GATE_CLASS;
-  state.gateOverlay.setAttribute('aria-label', MESSAGES.GATE_LABEL);
-  state.gateOverlay.addEventListener('click', handleGatedWalletClick);
+  state.gateOverlay.setAttribute(ARIA.LABEL, MESSAGES.GATE_LABEL);
+  state.gateOverlay.addEventListener(EVENTS.CLICK, handleGatedWalletClick);
   walletGroup.appendChild(state.gateOverlay);
   content.appendChild(heading);
   content.appendChild(walletGroup);
@@ -745,7 +753,7 @@ function validateStripePayment() {
   if (!wallets.some((wallet) => wallet.element)) {
     return true;
   }
-  return state.confirmedCartId === getActiveCartId();
+  return state.confirmedCartId === getCurrentCartId();
 }
 
 // Keep event subscriptions at the integration boundary.

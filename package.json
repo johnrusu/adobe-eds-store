@@ -10,6 +10,7 @@
     "lint:css": "stylelint \"blocks/**/*.css\" \"styles/*.css\"",
     "lint": "npm run lint:js && npm run lint:css",
     "lint:fix": "npm run lint:js -- --fix && npm run lint:css -- --fix",
+    "test": "jest --runInBand",
     "build": "npm run install:dropins && npm run build:json",
     "proxy:graphql": "node scripts/dev-graphql-proxy.mjs",
     "start:aem": "node --require ./scripts/wsl-port-check-preload.cjs ./node_modules/@adobe/aem-cli/index.js up --no-open --forward-browser-logs --html-folder drafts --html-mount /",
@@ -22,6 +23,18 @@
     "build:json:definitions": "merge-json-cli -i \"models/_component-definition.json\" -o \"component-definition.json\"",
     "build:json:filters": "merge-json-cli -i \"models/_component-filters.json\" -o \"component-filters.json\"",
     "prepare": "husky"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "<rootDir>/blocks/**/*.test.js",
+      "<rootDir>/scripts/**/*.test.js"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/scripts/__dropins__/"
+    ],
+    "transform": {}
   },
   "repository": {
     "type": "git",
@@ -41,6 +54,7 @@
     "eslint-config-airbnb-base": "15.0.0",
     "eslint-plugin-import": "2.32.0",
     "husky": "^9.1.7",
+    "jest": "^30.5.2",
     "merge-json-cli": "^1.0.4",
     "npm-run-all": "^4.1.5",
     "prettier": "^3.5.3",

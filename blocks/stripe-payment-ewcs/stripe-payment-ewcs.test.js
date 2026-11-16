@@ -3,7 +3,10 @@
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
-const { inlineStripeHelpers } = require("../stripe-shared/stripe-helpers.harness");
+const {
+  inlineStripeHelpers,
+  inlineBlockConstants,
+} = require("../stripe-shared/stripe-helpers.harness");
 
 const STRIPE_BLOCK_PATH = path.join(__dirname, "stripe-payment-ewcs.js");
 const CHECKOUT_SESSION_URL = "https://commerce-config.example/checkout-session";
@@ -118,7 +121,10 @@ function createDocument() {
 }
 
 function transformStripeBlockSource(source) {
-  return inlineStripeHelpers(source)
+  return inlineBlockConstants(
+    inlineStripeHelpers(source),
+    path.join(__dirname, "constants.js"),
+  )
     .replace(
       /import \{ events \} from ['"]@dropins\/tools\/event-bus\.js['"];/,
       "const { events } = __mocks;",

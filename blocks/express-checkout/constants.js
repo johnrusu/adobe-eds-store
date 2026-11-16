@@ -1,19 +1,27 @@
-/** Stripe and App Builder protocol values. */
-export const STRIPE_PAYMENT_METHOD_CODE = 'oope_stripe';
+import {
+  CART_EVENTS,
+  CHECKOUT_EVENTS,
+  ELEMENT_OPTION_MODE,
+  REDIRECT_IF_REQUIRED,
+  STRIPE_PAYMENT_METHOD_CODE,
+} from '../stripe-shared/constants.js';
 
+/** Stripe and App Builder protocol values shared with the other Stripe blocks. */
+export { STRIPE_PAYMENT_METHOD_CODE };
+
+/** Stripe and App Builder protocol values. */
 export const STRIPE_PAYMENT_METHOD_TITLE = 'Stripe Payment Method';
 
 export const STRIPE_JS_URL = 'https://js.stripe.com/v3/';
-
-export const STRIPE_REQUEST_TIMEOUT = 15000;
-
-export const STRIPE_LOADING_PROMISE_KEY = '__stripeJsLoadingPromise';
 
 export const STRIPE = Object.freeze({
   INVALID_PAYMENT_DATA: 'invalid_payment_data',
   FAIL: 'fail',
   ELEMENT_TYPE: 'expressCheckout',
-  REDIRECT_IF_REQUIRED: 'if_required',
+  REDIRECT_IF_REQUIRED,
+  // Stripe.js releases such as `dahlia` refuse this option in Stripe() with a VersionError.
+  API_VERSION_OPTION: 'apiVersion',
+  API_VERSION_REFUSED_PATTERN: /apiVersion/i,
 });
 
 export const SUPPORTED_PAYMENT_STATUSES = new Set([
@@ -22,14 +30,52 @@ export const SUPPORTED_PAYMENT_STATUSES = new Set([
   'succeeded',
 ]);
 
-/** Commerce storage and authentication. */
-export const STORE_VIEW_KEY = 'store-view';
+/** Request values the block sends to Commerce. */
+export const CACHE_NO_CACHE = 'no-cache';
 
-export const DEFAULT_STORE_VIEW = 'default';
+/** Accessibility attributes and the values the block sets. */
+export const ARIA = Object.freeze({
+  ROLE: 'role',
+  LABEL: 'aria-label',
+  LIVE: 'aria-live',
+  BUSY: 'aria-busy',
+  TRUE: 'true',
+  ROLE_SEPARATOR: 'separator',
+  ROLE_ALERT: 'alert',
+  ROLE_STATUS: 'status',
+  LIVE_ASSERTIVE: 'assertive',
+  LIVE_POLITE: 'polite',
+});
 
-export const CART_ID_KEY = 'DROPINS_CART_ID';
+/** Presentation values of the checkout markup. */
+export const ALERT_VARIANT_PRIMARY = 'primary';
+export const BUTTON_TYPE = 'button';
+export const FORM_SELECTOR = 'form';
 
-export const CUSTOMER_TOKEN_COOKIE_PATTERN = /(?:^|;\s*)auth_dropin_user_token=([^;]+)/;
+/** Wallets: Stripe payment method names, and the suffixes of their DOM IDs and classes. */
+export const WALLET_PAYMENT_METHODS = Object.freeze({
+  LINK: 'link',
+  AMAZON_PAY: 'amazonPay',
+  APPLE_PAY: 'applePay',
+  GOOGLE_PAY: 'googlePay',
+  PAYPAL: 'paypal',
+  KLARNA: 'klarna',
+});
+
+export const WALLET_NAMES = Object.freeze({
+  LINK: 'link',
+  AMAZON: 'amazon',
+  APPLE_PAY: 'apple-pay',
+  GOOGLE_PAY: 'google-pay',
+  PAYPAL: 'paypal',
+  KLARNA: 'klarna',
+});
+
+// Whether a wallet's payment method is offered by the Express Checkout Element
+export const WALLET_METHOD_MODE = Object.freeze({
+  ON: ELEMENT_OPTION_MODE.AUTO,
+  OFF: ELEMENT_OPTION_MODE.NEVER,
+});
 
 /** DOM hooks shared with the block stylesheet and checkout host. */
 export const STYLESHEET_URL = '/blocks/express-checkout/stripe-express-checkout.css';
@@ -37,6 +83,9 @@ export const STYLESHEET_URL = '/blocks/express-checkout/stripe-express-checkout.
 export const ELEMENT_CONTAINER_ID = 'stripe-express-checkout-element';
 
 export const BLOCK_CLASS = 'stripe-express-checkout';
+
+// Prefix of a wallet's container ID and class: the prefix plus a WALLET_NAMES value
+export const WALLET_CONTAINER_PREFIX = `${BLOCK_CLASS}-`;
 
 export const BLOCKED_CLASS = 'stripe-express-checkout-blocked';
 
@@ -56,41 +105,13 @@ export const GATE_CLASS = 'stripe-express-checkout-gate';
 
 export const CHECKOUT_SELECTOR = '.commerce-checkout';
 
-/** Currency conversion rules. All amounts sent to Stripe use minor units. */
-export const STRIPE_ZERO_DECIMAL_CURRENCIES = new Set([
-  'BIF',
-  'CLP',
-  'DJF',
-  'GNF',
-  'JPY',
-  'KMF',
-  'KRW',
-  'MGA',
-  'PYG',
-  'RWF',
-  'UGX',
-  'VND',
-  'VUV',
-  'XAF',
-  'XOF',
-  'XPF',
-]);
-
-export const STRIPE_THREE_DECIMAL_CURRENCIES = new Set([
-  'BHD',
-  'JOD',
-  'KWD',
-  'OMR',
-  'TND',
-]);
-
 /** Commerce event bus and Stripe Element event names. */
 export const EVENTS = Object.freeze({
-  CHECKOUT_INITIALIZED: 'checkout/initialized',
-  CHECKOUT_UPDATED: 'checkout/updated',
+  CHECKOUT_INITIALIZED: CHECKOUT_EVENTS.INITIALIZED,
+  CHECKOUT_UPDATED: CHECKOUT_EVENTS.UPDATED,
   CHECKOUT_VALUES: 'checkout/values',
-  CART_INITIALIZED: 'cart/initialized',
-  CART_UPDATED: 'cart/updated',
+  CART_INITIALIZED: CART_EVENTS.INITIALIZED,
+  CART_UPDATED: CART_EVENTS.UPDATED,
   CART_DATA: 'cart/data',
   CART_RESET: 'cart/reset',
   CLICK: 'click',
@@ -121,7 +142,21 @@ export const TAX_DISPLAY = Object.freeze({
   INCLUDING: 'INCLUDING_TAX',
   BOTH: 'INCLUDING_EXCLUDING_TAX',
   BOTH_CHECKOUT: 'INCLUDING_AND_EXCLUDING_TAX',
+  // Numeric display settings Commerce can also return
+  LEGACY_INCLUDING: Object.freeze([2, 3, '2', '3']),
+  LEGACY_EXCLUDING: Object.freeze([1, '1']),
 });
+
+/** Keys of the cart model that hold prices and taxes. */
+export const CART_PRICE_KEYS = Object.freeze({
+  INCLUDING_TAX: 'includingTax',
+  EXCLUDING_TAX: 'excludingTax',
+  TOTAL_TAX: 'totalTax',
+  APPLIED_TAXES: 'appliedTaxes',
+});
+
+// Joins a shipping method's carrier and title
+export const SHIPPING_METHOD_NAME_SEPARATOR = ' - ';
 
 export const PAYMENT_STATUS = Object.freeze({
   info: {
@@ -142,14 +177,8 @@ export const PAYMENT_STATUS = Object.freeze({
 
 export const MESSAGES = Object.freeze({
   WALLET_ADDRESS_INCOMPLETE: 'The wallet address is incomplete.',
-  AMOUNT_UNAVAILABLE: 'A Stripe amount is unavailable.',
   CART_AMOUNT_UNAVAILABLE: 'The authoritative cart amount is unavailable.',
   CURRENCY_CHANGED: 'The cart currency changed during Express Checkout.',
-  REQUEST_TIMEOUT: 'Stripe did not respond in time. Please try again.',
-  SDK_TIMEOUT: 'Stripe.js did not load in time.',
-  SDK_LOAD_FAILED: 'Stripe.js failed to load.',
-  CONFIG_UNAVAILABLE: 'Stripe runtime configuration is unavailable.',
-  CONFIG_INCOMPLETE: 'Stripe runtime configuration is incomplete.',
   INIT_UNAVAILABLE: 'Stripe initialization parameters are unavailable.',
   INTENT_FAILED: 'PaymentIntent failed.',
   METHOD_NOT_PERSISTED: 'Adobe Commerce did not select Stripe as the payment method.',
@@ -178,6 +207,8 @@ export const MESSAGES = Object.freeze({
   HEADING: 'Express checkout',
   SEPARATOR: 'Or pay another way',
   GATE_LABEL: 'Complete the required checkout fields to use Express Checkout',
+  ADDRESS_VERIFY_FAILED: 'Unable to verify checkout addresses. Please try again.',
+  SAVED_ADDRESS_VERIFY_FAILED: 'Unable to verify saved addresses. Please try again.',
 });
 
 /** Developer diagnostics; never include payment credentials in these messages. */

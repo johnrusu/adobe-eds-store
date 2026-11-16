@@ -6,10 +6,47 @@
 // Dropin Tools
 import { events } from '@dropins/tools/event-bus.js';
 
-// Checkout Dropin
-import * as checkoutApi from '@dropins/storefront-checkout/api.js';
-
 import { loadCSS } from '../../scripts/aem.js';
+import {
+  displayStripeError,
+  clearElementsContainer,
+  clearStripeError,
+  createPaymentFormContent,
+  destroyStripeElement,
+  fetchStripeResource,
+  getActiveCartId,
+  getAddressFullName,
+  getStripeAddress,
+  getStripeRuntimeConfig,
+  isStripePaymentMethod,
+  isStripePaymentMethodAvailable,
+  loadStripeJs,
+  persistStripePaymentMethod,
+  postStripeAction,
+  removeEmptyStripeValues,
+  resetPersistedStripePaymentMethod,
+  toStripeMinorUnits,
+} from '../stripe-shared/stripe-helpers.js';
+import {
+  CART_EVENTS,
+  CHECKOUT_EVENTS,
+  ELEMENT_OPTION_MODE,
+  ELEMENTS_CONTAINER_ID,
+  ELEMENTS_MODE_PAYMENT,
+  ID_SELECTOR_PREFIX,
+  LOADING_CLASS,
+  PAYMENT_ELEMENT_EVENTS,
+  PAYMENT_ELEMENT_LAYOUT_ACCORDION,
+  REDIRECT_IF_REQUIRED,
+  RUNTIME_URL_KEYS,
+  STRIPE_MESSAGES,
+} from '../stripe-shared/constants.js';
+import {
+  PAYMENT_ELEMENT_TYPE,
+  PAYMENT_MESSAGES,
+  STRIPE_JS_URL,
+  STYLESHEET_URL,
+} from './constants.js';
 
 /**
  * Stripe Payment Block
@@ -19,15 +56,10 @@ import { loadCSS } from '../../scripts/aem.js';
  */
 
 // Load the CSS for this block
-loadCSS('/blocks/stripe-payment/stripe-payment.css');
+loadCSS(STYLESHEET_URL);
 
-// Define the Stripe payment method code as a constant
-const STRIPE_PAYMENT_METHOD_CODE = 'oope_stripe';
-const STRIPE_REQUEST_TIMEOUT = 15000;
-const STRIPE_LOADING_PROMISE_KEY = '__stripeJsLoadingPromise';
-
-// Store the loading promise to avoid multiple loading attempts
-let stripeLoadingPromise = null;
+// Runtime URLs this block reads from the Commerce payment configuration
+const RUNTIME_URLS = [RUNTIME_URL_KEYS.GET_INIT_PARAMS, RUNTIME_URL_KEYS.CREATE_PAYMENT_INTENT];
 
 // Global state
 let checkoutData = null;
@@ -38,277 +70,93 @@ let stripe = null;
 let paymentFormComplete = false;
 let pendingClientSecret = null;
 let pendingReturnUrl = null;
-let persistedPaymentMethodClientSecret = null;
 let paymentFormMounting = false;
 
-async function fetchStripeResource(resource, options = {}) {
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), STRIPE_REQUEST_TIMEOUT);
-
-  try {
-    return await fetch(resource, { ...options, signal: controller.signal });
-  } catch (error) {
-    if (error.name === 'AbortError') {
-      throw new Error('Stripe did not respond in time. Please try again.');
-    }
-    throw error;
-  } finally {
-    window.clearTimeout(timeoutId);
-  }
-}
-
-const STRIPE_ZERO_DECIMAL_CURRENCIES = new Set([
-  'BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA',
-  'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF',
-]);
-
-const STRIPE_THREE_DECIMAL_CURRENCIES = new Set([
-  'BHD', 'JOD', 'KWD', 'OMR', 'TND',
-]);
-
-// Helper to ensure Stripe.js is loaded
-const loadStripeJs = () => {
-  // If there's already a loading promise in progress, return it
-  if (stripeLoadingPromise) {
-    return stripeLoadingPromise;
-  }
-
-  if (window[STRIPE_LOADING_PROMISE_KEY]) {
-    stripeLoadingPromise = window[STRIPE_LOADING_PROMISE_KEY];
-    return stripeLoadingPromise;
-  }
-
-  // If Stripe is already defined, resolve immediately
-  if (typeof Stripe !== 'undefined') {
-    return Promise.resolve();
-  }
-
-  // Create a new loading promise
-  stripeLoadingPromise = new Promise((resolve, reject) => {
-    // Loading Stripe.js dynamically...
-    const script = document.createElement('script');
-    script.src = 'https://js.stripe.com/v3/';
-    const timeoutId = window.setTimeout(() => {
-      stripeLoadingPromise = null;
-      window[STRIPE_LOADING_PROMISE_KEY] = null;
-      script.remove();
-      reject(new Error('Stripe.js did not load in time.'));
-    }, STRIPE_REQUEST_TIMEOUT);
-    script.onload = () => {
-      // Stripe.js loaded successfully
-      window.clearTimeout(timeoutId);
-      resolve();
-    };
-    script.onerror = (error) => {
-      // Failed to load Stripe.js
-      window.clearTimeout(timeoutId);
-      stripeLoadingPromise = null; // Reset so we can try again next time
-      window[STRIPE_LOADING_PROMISE_KEY] = null;
-      reject(new Error('Failed to load Stripe.js'));
-    };
-    document.head.appendChild(script);
-  });
-  window[STRIPE_LOADING_PROMISE_KEY] = stripeLoadingPromise;
-
-  return stripeLoadingPromise;
-};
-
-// Helper to display Stripe payment errors
-function displayStripeError(message, containerId = 'stripe-elements-container') {
-  const container = document.querySelector(`#${containerId}`);
-  if (!container) {
-    console.error('Error container not found:', containerId);
-    return;
-  }
-
-  // Create error container if it doesn't exist
-  let errorContainer = container.querySelector('.stripe-error');
-  if (!errorContainer) {
-    errorContainer = document.createElement('div');
-    errorContainer.className = 'stripe-error';
-    container.appendChild(errorContainer);
-  }
-
-  errorContainer.textContent = message;
-
-  // Scroll to error for visibility
-  errorContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-
-  setTimeout(() => {
-    clearStripeError(containerId);
-  }, 10000);
-}
-
-// Helper to clear Stripe payment errors
-function clearStripeError(containerId = 'stripe-elements-container') {
-  const container = document.querySelector(`#${containerId}`);
-  if (!container) return;
-
-  const errorContainer = container.querySelector('.stripe-error');
-  if (errorContainer) {
-    errorContainer.remove();
-  }
-}
-
-// Helper to get the customer auth token from cookie (set by storefront-auth dropin)
-function getCustomerTokenFromCookie() {
-  const match = document.cookie.match(
-    /(?:^|;\s*)auth_dropin_user_token=([^;]+)/,
-  );
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
-function getActiveCartId(preferredCartId = null) {
-  return (
-    preferredCartId
-    || cartData?.id
-    || events.lastPayload('cart/updated')?.id
-    || events.lastPayload('cart/initialized')?.id
-    || window.sessionStorage.getItem('DROPINS_CART_ID')
-    || null
-  );
-}
-
+/**
+ * Read the cart total as an amount and currency for Stripe.
+ * @param {Object} [cartDataParam] Cart data, the current cart by default.
+ * @returns {{amount: number, currency: string}} The amount in minor units, and the
+ * lowercase currency.
+ */
 function getStripeAmount(cartDataParam = cartData) {
   const total = cartDataParam?.total?.includingTax;
   const value = Number(total?.value);
   const currency = total?.currency?.toUpperCase();
 
   if (!Number.isFinite(value) || value <= 0 || !currency) {
-    throw new Error('Cart total is unavailable for Stripe payment initialization.');
+    throw new Error(PAYMENT_MESSAGES.CART_TOTAL_UNAVAILABLE);
   }
 
-  let fractionDigits = 2;
-  if (STRIPE_ZERO_DECIMAL_CURRENCIES.has(currency)) fractionDigits = 0;
-  if (STRIPE_THREE_DECIMAL_CURRENCIES.has(currency)) fractionDigits = 3;
-
   return {
-    amount: Math.round(value * (10 ** fractionDigits)),
+    amount: toStripeMinorUnits(value, currency),
     currency: currency.toLowerCase(),
   };
 }
 
-function parseStripeRuntimeConfig(stripePaymentMethod) {
-  const backendIntegrationUrl = stripePaymentMethod
-    ?.oope_payment_method_config?.backend_integration_url;
-
-  if (!backendIntegrationUrl) {
-    console.error(
-      'Stripe backend integration URL is missing in Commerce payment configuration.',
-    );
-    throw new Error('Stripe payment configuration is invalid.');
-  }
-
-  let paymentConfig;
-  try {
-    paymentConfig = JSON.parse(backendIntegrationUrl);
-  } catch (error) {
-    console.error('Stripe backend integration URL is not valid JSON.', error);
-    throw new Error('Stripe payment configuration is invalid.');
-  }
-
-  if (
-    !paymentConfig.getInitParamsUrl
-    || !paymentConfig.createPaymentIntentUrl
-  ) {
-    console.error(
-      'Stripe runtime URLs are missing in the Commerce payment configuration.',
-    );
-    throw new Error('Stripe payment configuration is invalid.');
-  }
-
-  return paymentConfig;
-}
-
-// Function to create a payment session with the OOPE payment gateway (Stripe)
-async function createPaymentIntent(endpoint, request) {
-  const headers = { 'Content-Type': 'application/json' };
-  const customerToken = getCustomerTokenFromCookie();
-  if (customerToken) {
-    headers.Authorization = `Bearer ${customerToken}`;
-  }
-
-  const selectedStore = window.localStorage.getItem('store-view') || 'default';
-  headers.Store = selectedStore;
-
-  const response = await fetchStripeResource(endpoint, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(request),
-  });
-  const data = await response.json();
-
-  if (!response.ok || data.error) {
-    throw new Error(
-      data.error || data.message || 'Unable to create Stripe session.',
-    );
-  }
-
-  return data;
-}
-
+/**
+ * Tell whether the payment form can be mounted now.
+ * @returns {boolean}
+ */
 function shouldRetryPaymentFormMount() {
   return Boolean(
     checkoutData
-      && isStripePaymentMethodAvailable()
-      && getActiveCartId()
-      && document.querySelector('#stripe-elements-container')
+      && isStripePaymentMethodAvailable(checkoutData)
+      && getActiveCartId(null, cartData)
+      && document.querySelector(`#${ELEMENTS_CONTAINER_ID}`)
       && !paymentElement
       && !pendingClientSecret
       && !paymentFormMounting,
   );
 }
 
+/**
+ * Mount the payment form when the checkout and the cart are ready for it.
+ */
 function retryPaymentFormMount() {
   if (!shouldRetryPaymentFormMount()) {
     return;
   }
 
-  mountPaymentForm('#stripe-elements-container');
+  mountPaymentForm(`#${ELEMENTS_CONTAINER_ID}`);
 }
 
+/**
+ * Destroy the mounted Payment Element and forget its Elements, client secret and return URL.
+ */
 function resetMountedPaymentElement() {
-  if (paymentElement) {
-    try {
-      paymentElement.destroy();
-    } catch (error) {
-      console.warn('Unable to destroy Stripe payment element:', error);
-    }
-  }
+  destroyStripeElement(paymentElement);
 
   paymentElement = null;
   elements = null;
   paymentFormComplete = false;
-  persistedPaymentMethodClientSecret = null;
+  resetPersistedStripePaymentMethod();
   pendingClientSecret = null;
   pendingReturnUrl = null;
 }
 
-// Create the PaymentIntent only after checkout and Stripe forms pass validation.
+/**
+ * Create the PaymentIntent only after checkout and Stripe forms pass validation.
+ * @param {Object} cartDataParam Cart data.
+ * @param {Object} checkoutDataParam Checkout data.
+ * @returns {Promise<{client_secret: string|null, return_url?: string|null}>} The PaymentIntent
+ * client secret and return URL.
+ */
 async function startPayment(cartDataParam, checkoutDataParam) {
   // Locate the Stripe payment method
-  const stripePaymentMethod = checkoutDataParam.availablePaymentMethods.find(
-    (method) => method.code === STRIPE_PAYMENT_METHOD_CODE,
+  const paymentConfig = getStripeRuntimeConfig(
+    checkoutDataParam.availablePaymentMethods.find(isStripePaymentMethod),
+    RUNTIME_URLS,
   );
 
-  if (!stripePaymentMethod) {
-    console.error('Stripe payment method configuration is missing.');
-    throw new Error('Stripe payment method is not available.');
-  }
-
-  const paymentConfig = parseStripeRuntimeConfig(stripePaymentMethod);
-
   const runtimeCreatePaymentIntentUrl = paymentConfig.createPaymentIntentUrl;
-  const cartId = getActiveCartId(cartDataParam?.id);
+  const cartId = getActiveCartId(cartDataParam?.id, cartData);
 
   if (!cartId) {
-    throw new Error(
-      'Cart ID is not available for Stripe payment initialization.',
-    );
+    throw new Error(STRIPE_MESSAGES.CART_ID_UNAVAILABLE_FOR_INIT);
   }
 
-  const cartFullName = `${checkoutDataParam?.billingAddress?.firstName || ''} ${checkoutDataParam?.billingAddress?.lastName || ''}`.trim();
-  const beginCreatePaymentIntent = await createPaymentIntent(
+  const cartFullName = getAddressFullName(checkoutDataParam?.billingAddress);
+  const beginCreatePaymentIntent = await postStripeAction(
     runtimeCreatePaymentIntentUrl,
     {
       cartId,
@@ -317,7 +165,7 @@ async function startPayment(cartDataParam, checkoutDataParam) {
   );
 
   if (!beginCreatePaymentIntent || !beginCreatePaymentIntent.client_secret) {
-    displayStripeError('Payment error: Unable to create Stripe session.');
+    displayStripeError(PAYMENT_MESSAGES.PAYMENT_ERROR_SESSION_CREATE_FAILED);
     return { client_secret: null };
   }
 
@@ -327,87 +175,51 @@ async function startPayment(cartDataParam, checkoutDataParam) {
   };
 }
 
-async function persistStripePaymentMethod(clientSecret) {
-  if (persistedPaymentMethodClientSecret === clientSecret) {
-    return true;
-  }
-
-  const paymentMethodResponse = await checkoutApi.setPaymentMethod({
-    code: STRIPE_PAYMENT_METHOD_CODE,
-    additional_data: [{ key: 'client_secret', value: clientSecret }],
-  });
-
-  if (!paymentMethodResponse) {
-    return false;
-  }
-
-  persistedPaymentMethodClientSecret = clientSecret;
-  return true;
-}
-
+/**
+ * Read the billing details of the checkout.
+ * @returns {Object} Name, email, phone and Stripe address.
+ */
 function getCurrentBillingDetails() {
   const billingAddress = checkoutData?.billingAddress || {};
-  const billingCountry = billingAddress?.country?.code
-    || billingAddress?.country?.value
-    || billingAddress?.countryCode
-    || '';
 
   return {
-    name: `${billingAddress?.firstName || ''} ${billingAddress?.lastName || ''}`.trim(),
+    name: getAddressFullName(billingAddress),
     email: checkoutData?.email || '',
     phone: billingAddress?.telephone || '',
-    address: {
-      line1: billingAddress?.street?.[0] || '',
-      line2: billingAddress?.street?.[1] || '',
-      city: billingAddress?.city || '',
-      state: billingAddress?.region?.code || '',
-      country: billingCountry,
-      postal_code: billingAddress?.postCode || billingAddress?.postcode || '',
-    },
+    address: getStripeAddress(billingAddress),
   };
 }
 
-function removeEmptyStripeValues(value) {
-  if (!value || typeof value !== 'object') {
-    return value;
-  }
-
-  return Object.entries(value).reduce((result, [key, fieldValue]) => {
-    if (fieldValue === '' || fieldValue === null || fieldValue === undefined) {
-      return result;
-    }
-
-    if (typeof fieldValue === 'object' && !Array.isArray(fieldValue)) {
-      const nestedValue = removeEmptyStripeValues(fieldValue);
-      if (Object.keys(nestedValue).length === 0) {
-        return result;
-      }
-      result[key] = nestedValue;
-      return result;
-    }
-
-    result[key] = fieldValue;
-    return result;
-  }, {});
+/**
+ * Choose whether the Payment Element asks for a billing detail the checkout already has.
+ * @param {string} value Value of the billing detail in the checkout.
+ * @returns {string} Never when the checkout has the value, auto otherwise.
+ */
+function getBillingFieldMode(value) {
+  return value ? ELEMENT_OPTION_MODE.NEVER : ELEMENT_OPTION_MODE.AUTO;
 }
 
+/**
+ * Build the options of the Payment Element, asking only for the billing details the checkout lacks.
+ * @returns {Object} The options.
+ */
 function getPaymentElementOptions() {
   const currentBillingDetails = getCurrentBillingDetails();
 
   return {
-    layout: 'accordion',
+    layout: PAYMENT_ELEMENT_LAYOUT_ACCORDION,
     fields: {
       billingDetails: {
-        name: 'never',
-        email: 'never',
-        phone: (currentBillingDetails.phone ? 'never' : 'auto'),
+        name: ELEMENT_OPTION_MODE.NEVER,
+        email: ELEMENT_OPTION_MODE.NEVER,
+        phone: getBillingFieldMode(currentBillingDetails.phone),
         address: {
-          line1: (currentBillingDetails.address.line1 ? 'never' : 'auto'),
-          line2: (currentBillingDetails.address.line2 ? 'never' : 'auto'),
-          city: (currentBillingDetails.address.city ? 'never' : 'auto'),
-          state: (currentBillingDetails.address.state ? 'never' : 'auto'),
-          country: (currentBillingDetails.address.country ? 'never' : 'auto'),
-          postalCode: (currentBillingDetails.address.postal_code ? 'never' : 'auto'),
+          line1: getBillingFieldMode(currentBillingDetails.address.line1),
+          line2: getBillingFieldMode(currentBillingDetails.address.line2),
+          city: getBillingFieldMode(currentBillingDetails.address.city),
+          state: getBillingFieldMode(currentBillingDetails.address.state),
+          country: getBillingFieldMode(currentBillingDetails.address.country),
+          postalCode: getBillingFieldMode(currentBillingDetails.address.postal_code),
         },
       },
     },
@@ -417,12 +229,18 @@ function getPaymentElementOptions() {
   };
 }
 
+/**
+ * Update the mounted Payment Element with the billing details of the checkout.
+ */
 function updateStripeBillingDetails() {
   if (paymentElement && paymentElement.update) {
     paymentElement.update(getPaymentElementOptions());
   }
 }
 
+/**
+ * Update the Elements amount to the cart total, until a PaymentIntent exists.
+ */
 function updateStripeCartTotal() {
   if (!elements || pendingClientSecret || !elements.update) {
     return;
@@ -431,53 +249,52 @@ function updateStripeCartTotal() {
   try {
     elements.update(getStripeAmount());
   } catch (error) {
-    console.warn('Unable to update Stripe payment amount:', error);
+    console.warn(PAYMENT_MESSAGES.PAYMENT_AMOUNT_UPDATE_FAILED, error);
   }
 }
 
+/**
+ * Load Stripe.js and its init params, then mount the Payment Element.
+ * @param {string} mountId Selector of the element to mount in.
+ * @returns {Promise<void>}
+ */
 async function mountPaymentForm(mountId) {
   if (paymentElement || paymentFormMounting) {
     return;
   }
 
   paymentFormMounting = true;
-  const mountIdWithoutHash = mountId.startsWith('#')
-    ? mountId.substring(1)
+  const mountIdWithoutHash = mountId.startsWith(ID_SELECTOR_PREFIX)
+    ? mountId.substring(ID_SELECTOR_PREFIX.length)
     : mountId;
 
   let initParams;
 
   try {
     // Ensure Stripe.js is loaded before continuing
-    await loadStripeJs();
+    await loadStripeJs(STRIPE_JS_URL);
 
     // Retrieve Stripe config dynamically
-    const stripePaymentMethod = checkoutData.availablePaymentMethods.find(
-      (method) => method.code === STRIPE_PAYMENT_METHOD_CODE,
+    const paymentConfig = getStripeRuntimeConfig(
+      checkoutData.availablePaymentMethods.find(isStripePaymentMethod),
+      RUNTIME_URLS,
     );
-
-    if (!stripePaymentMethod) {
-      console.error('Stripe payment method configuration is missing.');
-      throw new Error('Stripe payment method is not available.');
-    }
-
-    const paymentConfig = parseStripeRuntimeConfig(stripePaymentMethod);
 
     // Fetch the Stripe Init Params
     const stripeInitParams = await fetchStripeResource(paymentConfig.getInitParamsUrl);
 
     if (!stripeInitParams.ok) {
       throw new Error(
-        `Failed to load Stripe init params: ${stripeInitParams.statusText}`,
+        PAYMENT_MESSAGES.INIT_PARAMS_LOAD_FAILED(stripeInitParams.statusText),
       );
     }
 
     initParams = await stripeInitParams.json();
   } catch (error) {
-    console.error('Error fetching Stripe key:', error);
+    console.error(PAYMENT_MESSAGES.STRIPE_KEY_FETCH_FAILED, error);
     // Display the error using our helper function
     displayStripeError(
-      'Unable to load payment form. Please refresh and try again.',
+      STRIPE_MESSAGES.PAYMENT_FORM_LOAD_FAILED,
       mountIdWithoutHash,
     );
     paymentFormMounting = false;
@@ -490,79 +307,71 @@ async function mountPaymentForm(mountId) {
     // Must match the PaymentIntent's capture_method (manual capture mode).
     const { captureMethod } = initParams.elementsOptions || {};
     elements = stripe.elements({
-      mode: 'payment',
+      mode: ELEMENTS_MODE_PAYMENT,
       ...getStripeAmount(),
       ...(captureMethod ? { captureMethod } : {}),
     });
 
     // Make sure the loading container is removed before mounting
-    const container = document.querySelector(mountId);
-    if (container && container.closest('.stripe-elements-loading')) {
-      container
-        .closest('.stripe-elements-loading')
-        .classList.remove('stripe-elements-loading');
-    }
-    if (container) {
-      container.innerHTML = '';
-    }
+    clearElementsContainer(mountId);
 
     const options = getPaymentElementOptions();
-    paymentElement = elements.create('payment', options);
+    paymentElement = elements.create(PAYMENT_ELEMENT_TYPE, options);
     paymentElement.mount(mountId);
 
     // Track form completion status
-    paymentElement.on('change', (event) => {
+    paymentElement.on(PAYMENT_ELEMENT_EVENTS.CHANGE, (event) => {
       paymentFormComplete = event.complete;
     });
 
     // Set up event listener for future checkout updates
-    events.on('checkout/updated', updateStripeBillingDetails);
+    events.on(CHECKOUT_EVENTS.UPDATED, updateStripeBillingDetails);
     paymentFormMounting = false;
   } catch (error) {
-    console.error('Error initializing Stripe payment form:', error);
+    console.error(STRIPE_MESSAGES.PAYMENT_FORM_INIT_ERROR, error);
     // Display the error using our helper function
     displayStripeError(
-      'Unable to initialize payment form. Please refresh and try again.',
+      PAYMENT_MESSAGES.PAYMENT_FORM_INIT_FAILED,
       mountIdWithoutHash,
     );
     paymentFormMounting = false;
   }
 }
 
-// Handle Stripe payment processing during order placement
+/**
+ * Handle the Stripe payment while the order is placed.
+ * @param {string} cartId Cart ID of the checkout.
+ * @returns {Promise<boolean>} Whether the storefront can place the order.
+ */
 async function handleStripePayment(cartId) {
   // Clear any previous errors
   clearStripeError();
 
-  const resolvedCartId = getActiveCartId(cartId);
+  const resolvedCartId = getActiveCartId(cartId, cartData);
 
   if (!resolvedCartId) {
-    displayStripeError(
-      'Cart ID is unavailable. Please refresh checkout and try again.',
-    );
+    displayStripeError(STRIPE_MESSAGES.CART_ID_UNAVAILABLE);
     return false;
   }
 
   if (!validateStripePayment()) {
-    displayStripeError('Please complete your payment details');
+    displayStripeError(STRIPE_MESSAGES.PAYMENT_DETAILS_INCOMPLETE);
     return false;
   }
 
   if (!stripe || !elements) {
-    displayStripeError(
-      'Stripe payment is not properly initialized. Please refresh and try again.',
-    );
+    displayStripeError(STRIPE_MESSAGES.NOT_INITIALIZED);
     return false;
   }
 
   try {
     const { error: submitError } = await elements.submit();
     if (submitError) {
-      displayStripeError(submitError.message || 'Please complete your payment details');
+      displayStripeError(submitError.message || STRIPE_MESSAGES.PAYMENT_DETAILS_INCOMPLETE);
       return false;
     }
   } catch (elemSubmitError) {
-    const errorMessage = elemSubmitError?.message || 'Unknown error submitting payment form';
+    const errorMessage = elemSubmitError?.message || PAYMENT_MESSAGES.SUBMIT_UNKNOWN_ERROR;
     displayStripeError(errorMessage);
     return false;
   }
@@ -574,27 +383,27 @@ async function handleStripePayment(cartId) {
       pendingReturnUrl = paymentIntentData?.return_url || null;
     } catch (paymentSessionError) {
       displayStripeError(
-        paymentSessionError.message || 'Unable to create Stripe session.',
+        paymentSessionError.message || STRIPE_MESSAGES.SESSION_CREATE_FAILED,
       );
       return false;
     }
   }
 
   if (!pendingClientSecret) {
-    displayStripeError('Unable to create payment session. Please try again.');
+    displayStripeError(PAYMENT_MESSAGES.PAYMENT_SESSION_UNAVAILABLE);
     return false;
   }
 
   const clientSecret = pendingClientSecret;
   const didPersistPaymentMethod = await persistStripePaymentMethod(clientSecret);
   if (!didPersistPaymentMethod) {
-    displayStripeError('Failed to set the payment method.');
+    displayStripeError(STRIPE_MESSAGES.PAYMENT_METHOD_NOT_SET);
     return false;
   }
 
   const { error, paymentIntent } = await stripe.confirmPayment({
     elements,
-    redirect: 'if_required',
+    redirect: REDIRECT_IF_REQUIRED,
     clientSecret,
     confirmParams: {
       ...(pendingReturnUrl ? { return_url: pendingReturnUrl } : {}),
@@ -606,7 +415,7 @@ async function handleStripePayment(cartId) {
 
   if (error) {
     displayStripeError(
-      error.message || 'An error occurred during payment confirmation.',
+      error.message || STRIPE_MESSAGES.CONFIRMATION_ERROR,
     );
     return false;
   }
@@ -614,40 +423,37 @@ async function handleStripePayment(cartId) {
   return true;
 }
 
-// Render function for the Stripe payment method slot
+/**
+ * Render the Stripe payment method slot.
+ * @param {Object} ctx Slot context of the checkout payment methods.
+ */
 function renderStripePaymentMethod(ctx) {
   resetMountedPaymentElement();
 
-  const $content = document.createElement('div');
-  $content.id = 'stripe-payment-form'; // Stripe form container
-
-  // Ensure a child element exists for Stripe Elements
-  const $stripeContainer = document.createElement('div');
-  $stripeContainer.id = 'stripe-elements-container';
-  $stripeContainer.classList.add('stripe-elements-loading');
-
-  $content.appendChild($stripeContainer);
+  const { $content, $stripeContainer } = createPaymentFormContent();
   ctx.replaceHTML($content);
 
   requestAnimationFrame(async () => {
     try {
-      await loadStripeJs();
-      checkoutData = events.lastPayload('checkout/updated')
-        || events.lastPayload('checkout/initialized')
+      await loadStripeJs(STRIPE_JS_URL);
+      checkoutData = events.lastPayload(CHECKOUT_EVENTS.UPDATED)
+        || events.lastPayload(CHECKOUT_EVENTS.INITIALIZED)
         || checkoutData;
       retryPaymentFormMount();
     } catch (error) {
-      $stripeContainer.classList.remove('stripe-elements-loading');
+      $stripeContainer.classList.remove(LOADING_CLASS);
       displayStripeError(
-        'Unable to load payment form. Please refresh and try again.',
-        'stripe-elements-container',
+        STRIPE_MESSAGES.PAYMENT_FORM_LOAD_FAILED,
+        ELEMENTS_CONTAINER_ID,
       );
-      console.error('Failed to initialize Stripe payment form:', error);
+      console.error(PAYMENT_MESSAGES.PAYMENT_FORM_INIT_FAILED_LOG, error);
     }
   });
 }
 
-// Initialize the Stripe SDK
+/**
+ * Update the billing details of a mounted form and start loading Stripe.js.
+ */
 function initializeStripePayment() {
   // Update billing details if stripe payment is already initialized
   if (paymentElement) {
@@ -655,12 +461,15 @@ function initializeStripePayment() {
   }
 
   // Load Stripe.js for payment processing
-  loadStripeJs().catch((error) => {
-    console.warn('Failed to load Stripe.js during initialization:', error);
+  loadStripeJs(STRIPE_JS_URL).catch((error) => {
+    console.warn(STRIPE_MESSAGES.STRIPE_JS_INIT_LOAD_FAILED, error);
   });
 }
 
-// Validate Stripe payment form - called by checkout validation
+/**
+ * Validate the Stripe payment form. Called by the checkout validation.
+ * @returns {boolean} Whether the payment details are complete, or there is no Stripe form.
+ */
 function validateStripePayment() {
   if (!paymentElement) {
     return true; // Not a Stripe payment, validation passes
@@ -675,10 +484,10 @@ function validateStripePayment() {
 
 // Listen for checkout initialization to set up Stripe payment
 events.on(
-  'checkout/initialized',
+  CHECKOUT_EVENTS.INITIALIZED,
   (data) => {
     checkoutData = data;
-    if (!isStripePaymentMethodAvailable()) {
+    if (!isStripePaymentMethodAvailable(checkoutData)) {
       return; // No Stripe payment method available, skip initialization
     }
     initializeStripePayment();
@@ -688,7 +497,7 @@ events.on(
 
 // Listen for cart data
 events.on(
-  'cart/initialized',
+  CART_EVENTS.INITIALIZED,
   (data) => {
     cartData = data;
     retryPaymentFormMount();
@@ -697,7 +506,7 @@ events.on(
 );
 
 events.on(
-  'cart/updated',
+  CART_EVENTS.UPDATED,
   (data) => {
     cartData = data;
     updateStripeCartTotal();
@@ -707,20 +516,14 @@ events.on(
 );
 
 // Listen for checkout updates
-events.on('checkout/updated', (data) => {
+events.on(CHECKOUT_EVENTS.UPDATED, (data) => {
   checkoutData = data;
-  if (!isStripePaymentMethodAvailable()) {
+  if (!isStripePaymentMethodAvailable(checkoutData)) {
     return;
   }
   initializeStripePayment();
   retryPaymentFormMount();
 });
-
-function isStripePaymentMethodAvailable() {
-  return checkoutData?.availablePaymentMethods.some(
-    (method) => method.code === STRIPE_PAYMENT_METHOD_CODE,
-  );
-}
 
 // Export the functions that need to be used by other blocks
 export {

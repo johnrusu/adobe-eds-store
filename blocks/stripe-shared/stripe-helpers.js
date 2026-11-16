@@ -7,22 +7,48 @@ import { events } from '@dropins/tools/event-bus.js';
 // Checkout Dropin
 import * as checkoutApi from '@dropins/storefront-checkout/api.js';
 
+import {
+  ABORT_ERROR_NAME,
+  AUTH_TOKEN_COOKIE_PATTERN,
+  BEARER_PREFIX,
+  CART_EVENTS,
+  CART_ID_STORAGE_KEY,
+  CLIENT_SECRET_DATA_KEY,
+  DEFAULT_STORE_VIEW,
+  ELEMENTS_CONTAINER_ID,
+  HTTP_HEADERS,
+  HTTP_METHOD_POST,
+  JSON_CONTENT_TYPE,
+  LOADING_CLASS,
+  PAYMENT_FORM_ID,
+  STORE_VIEW_STORAGE_KEY,
+  STRIPE_ERROR_CLASS,
+  STRIPE_ERROR_DISPLAY_TIME,
+  STRIPE_ERROR_SCROLL_OPTIONS,
+  STRIPE_LOADING_PROMISE_KEY,
+  STRIPE_MESSAGES,
+  STRIPE_PAYMENT_METHOD_CODE,
+  STRIPE_REQUEST_TIMEOUT,
+  STRIPE_THREE_DECIMAL_CURRENCIES,
+  STRIPE_ZERO_DECIMAL_CURRENCIES,
+} from './constants.js';
+
 /**
  * Helpers shared by the stripe-payment, stripe-payment-ewcs and express-checkout
  * blocks. Copy this folder into the storefront next to the block that uses it.
  */
-
-// Define the Stripe payment method code as a constant
-export const STRIPE_PAYMENT_METHOD_CODE = 'oope_stripe';
-export const STRIPE_REQUEST_TIMEOUT = 15000;
-export const ELEMENTS_CONTAINER_ID = 'stripe-elements-container';
-const STRIPE_LOADING_PROMISE_KEY = '__stripeJsLoadingPromise';
 
 // Store the loading promise to avoid multiple loading attempts
 let stripeLoadingPromise = null;
 // Client secret last stored on the Commerce cart payment
 let persistedPaymentMethodClientSecret = null;
 
+/**
+ * Fetch a resource, aborting the request after the Stripe request timeout.
+ * @param {string} resource URL to request.
+ * @param {Object} [options] Options of the fetch call.
+ * @returns {Promise<Response>} The response.
+ */
 export async function fetchStripeResource(resource, options = {}) {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), STRIPE_REQUEST_TIMEOUT);
@@ -30,8 +56,8 @@ export async function fetchStripeResource(resource, options = {}) {
   try {
     return await fetch(resource, { ...options, signal: controller.signal });
   } catch (error) {
-    if (error.name === 'AbortError') {
-      throw new Error('Stripe did not respond in time. Please try again.');
+    if (error.name === ABORT_ERROR_NAME) {
+      throw new Error(STRIPE_MESSAGES.RESPONSE_TIMEOUT);
     }
     throw error;
   } finally {
@@ -39,9 +65,12 @@ export async function fetchStripeResource(resource, options = {}) {
   }
 }
 
-// Helper to ensure Stripe.js is loaded from the given release URL. The Stripe
-// blocks on a page share one loading promise, so the first block to start
-// loading decides the release.
+/**
+ * Ensure Stripe.js is loaded from the given release URL. The Stripe blocks on a page
+ * share one loading promise, so the first block to start loading decides the release.
+ * @param {string} url Stripe.js release URL.
+ * @returns {Promise<void>} Settles when Stripe.js is loaded.
+ */
 export const loadStripeJs = (url) => {
   // If there's already a loading promise in progress, return it
   if (stripeLoadingPromise) {
@@ -67,7 +96,7 @@ export const loadStripeJs = (url) => {
       stripeLoadingPromise = null;
       window[STRIPE_LOADING_PROMISE_KEY] = null;
       script.remove();
-      reject(new Error('Stripe.js did not load in time.'));
+      reject(new Error(STRIPE_MESSAGES.STRIPE_JS_TIMEOUT));
     }, STRIPE_REQUEST_TIMEOUT);
     script.onload = () => {
       // Stripe.js loaded successfully
@@ -79,7 +108,7 @@ export const loadStripeJs = (url) => {
       window.clearTimeout(timeoutId);
       stripeLoadingPromise = null; // Reset so we can try again next time
       window[STRIPE_LOADING_PROMISE_KEY] = null;
-      reject(new Error('Failed to load Stripe.js'));
+      reject(new Error(STRIPE_MESSAGES.STRIPE_JS_LOAD_FAILED));
     };
     document.head.appendChild(script);
   });
@@ -88,121 +117,200 @@ export const loadStripeJs = (url) => {
   return stripeLoadingPromise;
 };
 
-// Helper to clear Stripe payment errors
+/**
+ * Build the container of the payment form: the form with the Elements container in its loading
+ * state, which the Stripe blocks put in the payment method slot.
+ * @returns {{$content: HTMLElement, $stripeContainer: HTMLElement}} The form and the container.
+ */
+export function createPaymentFormContent() {
+  const $content = document.createElement('div');
+  $content.id = PAYMENT_FORM_ID; // Stripe form container
+
+  // Ensure a child element exists for Stripe Elements
+  const $stripeContainer = document.createElement('div');
+  $stripeContainer.id = ELEMENTS_CONTAINER_ID;
+  $stripeContainer.classList.add(LOADING_CLASS);
+
+  $content.appendChild($stripeContainer);
+  return { $content, $stripeContainer };
+}
+
+/**
+ * Remove the loading state of the Elements container and empty it, before mounting an element.
+ * @param {string} mountId Selector of the container.
+ */
+export function clearElementsContainer(mountId) {
+  const container = document.querySelector(mountId);
+  if (container && container.closest(`.${LOADING_CLASS}`)) {
+    container
+      .closest(`.${LOADING_CLASS}`)
+      .classList.remove(LOADING_CLASS);
+  }
+  if (container) {
+    container.innerHTML = '';
+  }
+}
+
+/**
+ * Destroy a mounted Stripe element, logging instead of throwing when Stripe.js refuses.
+ * @param {Object|null} element Mounted Payment Element, if there is one.
+ */
+export function destroyStripeElement(element) {
+  if (!element) return;
+
+  try {
+    element.destroy();
+  } catch (error) {
+    console.warn(STRIPE_MESSAGES.PAYMENT_ELEMENT_DESTROY_FAILED, error);
+  }
+}
+
+/**
+ * Remove the Stripe payment error message from a container.
+ * @param {string} [containerId] ID of the container holding the message.
+ */
 export function clearStripeError(containerId = ELEMENTS_CONTAINER_ID) {
   const container = document.querySelector(`#${containerId}`);
   if (!container) return;
 
-  const errorContainer = container.querySelector('.stripe-error');
+  const errorContainer = container.querySelector(`.${STRIPE_ERROR_CLASS}`);
   if (errorContainer) {
     errorContainer.remove();
   }
 }
 
-// Helper to display Stripe payment errors
+/**
+ * Show a Stripe payment error message in a container. The message goes away after a while.
+ * @param {string} message Message to show.
+ * @param {string} [containerId] ID of the container to show it in.
+ */
 export function displayStripeError(message, containerId = ELEMENTS_CONTAINER_ID) {
   const container = document.querySelector(`#${containerId}`);
   if (!container) {
-    console.error('Error container not found:', containerId);
+    console.error(STRIPE_MESSAGES.ERROR_CONTAINER_NOT_FOUND, containerId);
     return;
   }
 
   // Create error container if it doesn't exist
-  let errorContainer = container.querySelector('.stripe-error');
+  let errorContainer = container.querySelector(`.${STRIPE_ERROR_CLASS}`);
   if (!errorContainer) {
     errorContainer = document.createElement('div');
-    errorContainer.className = 'stripe-error';
+    errorContainer.className = STRIPE_ERROR_CLASS;
     container.appendChild(errorContainer);
   }
 
   errorContainer.textContent = message;
 
   // Scroll to error for visibility
-  errorContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  errorContainer.scrollIntoView(STRIPE_ERROR_SCROLL_OPTIONS);
 
   setTimeout(() => {
     clearStripeError(containerId);
-  }, 10000);
+  }, STRIPE_ERROR_DISPLAY_TIME);
 }
 
-// Helper to get the customer auth token from cookie (set by storefront-auth dropin)
+/**
+ * Read the customer auth token from the cookie set by the storefront-auth drop-in.
+ * @returns {string|null} The token of a logged-in customer, or null.
+ */
 export function getCustomerTokenFromCookie() {
-  const match = document.cookie.match(
-    /(?:^|;\s*)auth_dropin_user_token=([^;]+)/,
-  );
+  const match = document.cookie.match(AUTH_TOKEN_COOKIE_PATTERN);
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-export function getActiveCartId(preferredCartId = null, cartData = null) {
+/**
+ * Resolve the active cart ID from the arguments, the cart events or the session storage.
+ * @param {string|null} [preferredCartId] Cart ID to use when there is one.
+ * @param {Object|null} [cartData] Cart data of the checkout.
+ * @param {Object|null} [checkoutData] Checkout data, which can also carry the cart ID.
+ * @returns {string|null} The cart ID, or null.
+ */
+export function getActiveCartId(preferredCartId = null, cartData = null, checkoutData = null) {
   return (
     preferredCartId
     || cartData?.id
-    || events.lastPayload('cart/updated')?.id
-    || events.lastPayload('cart/initialized')?.id
-    || window.sessionStorage.getItem('DROPINS_CART_ID')
+    || checkoutData?.id
+    || events.lastPayload(CART_EVENTS.UPDATED)?.id
+    || events.lastPayload(CART_EVENTS.INITIALIZED)?.id
+    || window.sessionStorage.getItem(CART_ID_STORAGE_KEY)
     || null
   );
 }
 
+/**
+ * Tell whether a payment method is the Stripe one.
+ * @param {Object} method Commerce payment method.
+ * @returns {boolean}
+ */
 export function isStripePaymentMethod(method) {
   return method.code === STRIPE_PAYMENT_METHOD_CODE;
 }
 
+/**
+ * Tell whether the checkout offers the Stripe payment method.
+ * @param {Object} checkoutData Checkout drop-in data.
+ * @returns {boolean|undefined}
+ */
 export function isStripePaymentMethodAvailable(checkoutData) {
   return checkoutData?.availablePaymentMethods.some(isStripePaymentMethod);
 }
 
-// The App Builder action URLs from the trusted Commerce payment configuration of
-// the Stripe payment method, which must hold every URL in requiredUrls.
+/**
+ * Read the App Builder action URLs from the trusted Commerce payment configuration of
+ * the Stripe payment method, which must hold every URL in requiredUrls.
+ * @param {Object} stripePaymentMethod Commerce Stripe payment method.
+ * @param {string[]} requiredUrls Names of the URLs the configuration must hold.
+ * @returns {Object} The parsed payment configuration.
+ */
 export function getStripeRuntimeConfig(stripePaymentMethod, requiredUrls) {
   if (!stripePaymentMethod) {
-    console.error('Stripe payment method configuration is missing.');
-    throw new Error('Stripe payment method is not available.');
+    console.error(STRIPE_MESSAGES.METHOD_CONFIGURATION_MISSING);
+    throw new Error(STRIPE_MESSAGES.METHOD_NOT_AVAILABLE);
   }
 
   const backendIntegrationUrl = stripePaymentMethod
     ?.oope_payment_method_config?.backend_integration_url;
 
   if (!backendIntegrationUrl) {
-    console.error(
-      'Stripe backend integration URL is missing in Commerce payment configuration.',
-    );
-    throw new Error('Stripe payment configuration is invalid.');
+    console.error(STRIPE_MESSAGES.BACKEND_URL_MISSING);
+    throw new Error(STRIPE_MESSAGES.CONFIGURATION_INVALID);
   }
 
   let paymentConfig;
   try {
     paymentConfig = JSON.parse(backendIntegrationUrl);
   } catch (error) {
-    console.error('Stripe backend integration URL is not valid JSON.', error);
-    throw new Error('Stripe payment configuration is invalid.');
+    console.error(STRIPE_MESSAGES.BACKEND_URL_INVALID_JSON, error);
+    throw new Error(STRIPE_MESSAGES.CONFIGURATION_INVALID);
   }
 
   if (requiredUrls.some((name) => !paymentConfig[name])) {
-    console.error(
-      'Stripe runtime URLs are missing in the Commerce payment configuration.',
-    );
-    throw new Error('Stripe payment configuration is invalid.');
+    console.error(STRIPE_MESSAGES.RUNTIME_URLS_MISSING);
+    throw new Error(STRIPE_MESSAGES.CONFIGURATION_INVALID);
   }
 
   return paymentConfig;
 }
 
-// POST to an App Builder action with the customer token and the store view. A
-// failed request throws the action's error message, with its error code as
-// `code`.
+/**
+ * POST to an App Builder action with the customer token and the store view. A failed
+ * request throws the action's error message, with its error code as `code`.
+ * @param {string} endpoint URL of the action.
+ * @param {Object} body Request body.
+ * @returns {Promise<Object>} The action's response data.
+ */
 export async function postStripeAction(endpoint, body) {
-  const headers = { 'Content-Type': 'application/json' };
+  const headers = { [HTTP_HEADERS.CONTENT_TYPE]: JSON_CONTENT_TYPE };
   const customerToken = getCustomerTokenFromCookie();
   if (customerToken) {
-    headers.Authorization = `Bearer ${customerToken}`;
+    headers[HTTP_HEADERS.AUTHORIZATION] = `${BEARER_PREFIX}${customerToken}`;
   }
 
-  const selectedStore = window.localStorage.getItem('store-view') || 'default';
-  headers.Store = selectedStore;
+  const selectedStore = window.localStorage.getItem(STORE_VIEW_STORAGE_KEY) || DEFAULT_STORE_VIEW;
+  headers[HTTP_HEADERS.STORE] = selectedStore;
 
   const response = await fetchStripeResource(endpoint, {
-    method: 'POST',
+    method: HTTP_METHOD_POST,
     headers,
     body: JSON.stringify(body),
   });
@@ -210,7 +318,7 @@ export async function postStripeAction(endpoint, body) {
 
   if (!response.ok || data.error) {
     const error = new Error(
-      data.error || data.message || 'Unable to create Stripe session.',
+      data.error || data.message || STRIPE_MESSAGES.SESSION_CREATE_FAILED,
     );
     error.code = data.code || null;
     throw error;
@@ -219,16 +327,29 @@ export async function postStripeAction(endpoint, body) {
   return data;
 }
 
-// Store the client secret on the Commerce cart payment, once per client secret.
+/**
+ * Set the Stripe payment method, with a client secret, on the Commerce cart.
+ * @param {string} clientSecret Client secret of the PaymentIntent or Checkout Session.
+ * @returns {Promise<Object|null|undefined>} The updated checkout, as the checkout API returns it.
+ */
+export function setStripePaymentMethod(clientSecret) {
+  return checkoutApi.setPaymentMethod({
+    code: STRIPE_PAYMENT_METHOD_CODE,
+    additional_data: [{ key: CLIENT_SECRET_DATA_KEY, value: clientSecret }],
+  });
+}
+
+/**
+ * Store the client secret on the Commerce cart payment, once per client secret.
+ * @param {string} clientSecret Client secret of the PaymentIntent or Checkout Session.
+ * @returns {Promise<boolean>} Whether Commerce accepted it.
+ */
 export async function persistStripePaymentMethod(clientSecret) {
   if (persistedPaymentMethodClientSecret === clientSecret) {
     return true;
   }
 
-  const paymentMethodResponse = await checkoutApi.setPaymentMethod({
-    code: STRIPE_PAYMENT_METHOD_CODE,
-    additional_data: [{ key: 'client_secret', value: clientSecret }],
-  });
+  const paymentMethodResponse = await setStripePaymentMethod(clientSecret);
 
   if (!paymentMethodResponse) {
     return false;
@@ -238,15 +359,27 @@ export async function persistStripePaymentMethod(clientSecret) {
   return true;
 }
 
+/**
+ * Forget the client secret last stored on the Commerce cart payment.
+ */
 export function resetPersistedStripePaymentMethod() {
   persistedPaymentMethodClientSecret = null;
 }
 
+/**
+ * Join the first and last name of an address.
+ * @param {Object} [address] Checkout drop-in address.
+ * @returns {string} The full name, empty when the address has none.
+ */
 export function getAddressFullName(address) {
   return `${address?.firstName || ''} ${address?.lastName || ''}`.trim();
 }
 
-// A checkout drop-in address in the shape Stripe.js expects.
+/**
+ * Convert a checkout drop-in address to the shape Stripe.js expects.
+ * @param {Object} [address] Checkout drop-in address.
+ * @returns {Object} The Stripe address.
+ */
 export function getStripeAddress(address) {
   const country = address?.country?.code
     || address?.country?.value
@@ -263,18 +396,6 @@ export function getStripeAddress(address) {
   };
 }
 
-// Currencies Stripe charges without minor units, and with three decimals.
-// UGX is not listed: Stripe takes UGX amounts with two decimals.
-// https://docs.stripe.com/currencies
-const STRIPE_ZERO_DECIMAL_CURRENCIES = new Set([
-  'BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA',
-  'PYG', 'RWF', 'VND', 'VUV', 'XAF', 'XOF', 'XPF',
-]);
-
-const STRIPE_THREE_DECIMAL_CURRENCIES = new Set([
-  'BHD', 'JOD', 'KWD', 'OMR', 'TND',
-]);
-
 /**
  * Convert a Commerce amount to the smallest currency unit Stripe expects, with
  * the same rules as the App Builder actions. A three-decimal amount is rounded
@@ -286,7 +407,7 @@ const STRIPE_THREE_DECIMAL_CURRENCIES = new Set([
 export function toStripeMinorUnits(value, currency) {
   const numericValue = Number(value);
   if (!Number.isFinite(numericValue)) {
-    throw new Error('A Stripe amount is unavailable.');
+    throw new Error(STRIPE_MESSAGES.AMOUNT_UNAVAILABLE);
   }
 
   const normalizedCurrency = String(currency || '').toUpperCase();
@@ -299,6 +420,11 @@ export function toStripeMinorUnits(value, currency) {
   return Math.round(numericValue * 100);
 }
 
+/**
+ * Drop empty strings, null, undefined and empty objects from a value, recursively.
+ * @param {*} value Value to clean.
+ * @returns {*} The cleaned value; a non-object is returned as it is.
+ */
 export function removeEmptyStripeValues(value) {
   if (!value || typeof value !== 'object') {
     return value;

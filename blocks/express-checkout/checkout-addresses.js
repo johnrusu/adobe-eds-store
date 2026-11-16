@@ -1,4 +1,6 @@
 import * as checkoutApi from '@dropins/storefront-checkout/api.js';
+import { HTTP_METHOD_GET } from '../stripe-shared/constants.js';
+import { CACHE_NO_CACHE, MESSAGES } from './constants.js';
 
 const CUSTOMER_ADDRESSES = `query CheckoutCustomerAddresses {
   customer {
@@ -57,7 +59,7 @@ function addressKey(address) {
  * @param {Object} cart Current Checkout Drop-in cart.
  */
 export async function reuseCustomerAddresses(cart) {
-  if (!cart) throw new Error('Unable to verify checkout addresses. Please try again.');
+  if (!cart) throw new Error(MESSAGES.ADDRESS_VERIFY_FAILED);
   if (cart.isGuest !== false) return;
 
   const shipping = cart.isVirtual ? null : cart.shippingAddresses?.[0] || cart.shippingAddress;
@@ -66,11 +68,11 @@ export async function reuseCustomerAddresses(cart) {
   if (![shipping, billing].some(isNewAddress)) return;
 
   const response = await checkoutApi.fetchGraphQl(CUSTOMER_ADDRESSES, {
-    method: 'GET',
-    cache: 'no-cache',
+    method: HTTP_METHOD_GET,
+    cache: CACHE_NO_CACHE,
   });
   if (response.errors?.length || !Array.isArray(response.data?.customer?.addresses)) {
-    throw new Error('Unable to verify saved addresses. Please try again.');
+    throw new Error(MESSAGES.SAVED_ADDRESS_VERIFY_FAILED);
   }
   const savedAddresses = response.data.customer.addresses.filter((address) => address?.id);
   const findSavedAddress = (address) => {

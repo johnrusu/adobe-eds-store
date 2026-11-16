@@ -112,7 +112,7 @@ function loadShippingModule() {
     new vm.Script(`(function(__require, module) { ${source}\n})`, { filename })
       .runInContext(context)((specifier) => {
         if (externals[specifier]) return externals[specifier];
-        if (!specifier.startsWith('./')) throw new Error(`Unexpected module: ${specifier}`);
+        if (!specifier.startsWith('.')) throw new Error(`Unexpected module: ${specifier}`);
         return load(path.resolve(path.dirname(filename), specifier));
       }, module);
     return module.exports;

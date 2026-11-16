@@ -1,6 +1,6 @@
 import * as checkoutApi from '@dropins/storefront-checkout/api.js';
 import * as cartApi from '@dropins/storefront-cart/api.js';
-import { toStripeMinorUnits } from './money.js';
+import { getCustomerTokenFromCookie, toStripeMinorUnits } from '../stripe-shared/stripe-helpers.js';
 import {
   getWalletLineItems,
   readAmount,
@@ -8,6 +8,7 @@ import {
 import {
   MESSAGES,
   DIAGNOSTICS,
+  SHIPPING_METHOD_NAME_SEPARATOR,
 } from './constants.js';
 import { state } from './checkout-state.js';
 import {
@@ -23,7 +24,6 @@ import {
   getCheckoutBillingAddress,
 } from './addresses.js';
 import { wallets } from './wallets.js';
-import { getCustomerTokenFromCookie } from './stripe-api.js';
 
 /**
  * Resolve the authoritative amount and currency from the cart fallbacks.
@@ -94,7 +94,9 @@ function toStripeShippingRate(method) {
   state.shippingMethodsByRateId.set(id, method);
   return {
     id,
-    displayName: [method?.carrier?.title, method?.title].filter(Boolean).join(' - '),
+    displayName: [method?.carrier?.title, method?.title]
+      .filter(Boolean)
+      .join(SHIPPING_METHOD_NAME_SEPARATOR),
     amount: toStripeMinorUnits(amount.value, amount.currency),
   };
 }

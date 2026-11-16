@@ -17,6 +17,9 @@ const CHECKOUT_ERROR_CLASS = 'checkout__content--error';
 const CHECKOUT_HEADER_CLASS = 'checkout-header';
 const ORDER_CONFIRMATION_BLOCK = 'order-confirmation__block';
 
+// Event bus events
+const ORDER_PLACED_EVENT = 'order/placed';
+
 // Stripe payment flow constants (query parameter and storage key match the Stripe playground)
 const STRIPE_FLOW = Object.freeze({
   PAYMENT_INTENT: 'payment-intent',
@@ -54,6 +57,9 @@ export {
   CHECKOUT_ERROR_CLASS,
   CHECKOUT_HEADER_CLASS,
   ORDER_CONFIRMATION_BLOCK,
+
+  // Event bus events
+  ORDER_PLACED_EVENT,
 
   // Stripe payment flow constants
   STRIPE_FLOW,

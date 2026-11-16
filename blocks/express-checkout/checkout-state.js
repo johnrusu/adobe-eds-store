@@ -4,9 +4,6 @@
  * confirmation, and UI state. Remount cleanup deliberately preserves cart data.
  */
 export const state = {
-  // Stripe.js loading is shared with the regular payment form across remounts.
-  /** @type {Promise<void>|null} */
-  stripeLoadingPromise: null,
   /** @type {Object|null} Stripe client for the mounted wallets. */
   stripe: null,
   /** @type {Object|null} Elements instance selected for the current attempt. */

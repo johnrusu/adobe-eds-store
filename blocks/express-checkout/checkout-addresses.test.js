@@ -1,7 +1,12 @@
 /* eslint-env node, jest */
+/* eslint-disable import/extensions */
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const {
+  inlineBlockConstants,
+  inlineStripeHelpers,
+} = require('../stripe-shared/stripe-helpers.harness');
 
 const savedAddress = {
   id: 42,
@@ -32,7 +37,10 @@ function setup(addresses = [savedAddress]) {
     setShippingAddress: jest.fn().mockResolvedValue({}),
     setBillingAddress: jest.fn().mockResolvedValue({}),
   };
-  const source = fs.readFileSync(path.join(__dirname, 'checkout-addresses.js'), 'utf8')
+  const source = inlineBlockConstants(
+    inlineStripeHelpers(fs.readFileSync(path.join(__dirname, 'checkout-addresses.js'), 'utf8')),
+    path.join(__dirname, 'constants.js'),
+  )
     .replace("import * as checkoutApi from '@dropins/storefront-checkout/api.js';", '')
     .replace('export async function', 'async function');
   const context = vm.createContext({ checkoutApi });

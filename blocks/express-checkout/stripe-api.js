@@ -1,110 +1,35 @@
-/* global Stripe */
-
 import { events } from '@dropins/tools/event-bus.js';
-import * as checkoutApi from '@dropins/storefront-checkout/api.js';
 import {
-  DEFAULT_STORE_VIEW, CUSTOMER_TOKEN_COOKIE_PATTERN,
-  STRIPE_REQUEST_TIMEOUT,
   MESSAGES,
-  STRIPE_LOADING_PROMISE_KEY,
-  STRIPE_JS_URL,
   EVENTS,
-  CART_ID_KEY,
   STRIPE_PAYMENT_METHOD_CODE,
-  STORE_VIEW_KEY,
   STRIPE_PAYMENT_METHOD_TITLE,
 } from './constants.js';
+import {
+  BEARER_PREFIX,
+  DEFAULT_STORE_VIEW,
+  HTTP_HEADERS,
+  HTTP_METHOD_POST,
+  JSON_CONTENT_TYPE,
+  RUNTIME_URL_KEYS,
+  STORE_VIEW_STORAGE_KEY,
+} from '../stripe-shared/constants.js';
+import {
+  fetchStripeResource,
+  getActiveCartId,
+  getCustomerTokenFromCookie,
+  getStripeRuntimeConfig,
+  setStripePaymentMethod,
+} from '../stripe-shared/stripe-helpers.js';
 import { state } from './checkout-state.js';
 import { getCommerceCustomerName } from './addresses.js';
 
 /**
- * Fetch an App Builder resource with the request timeout.
- * @param {string} resource Configured App Builder action URL.
- * @param {RequestInit} [options] Fetch request options.
- * @returns {Promise<Response>}
- */
-async function fetchStripeResource(resource, options = {}) {
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), STRIPE_REQUEST_TIMEOUT);
-  try {
-    return await fetch(resource, {
-      ...options,
-      signal: controller.signal,
-    });
-  } catch (error) {
-    if (error.name === 'AbortError') {
-      throw new Error(MESSAGES.REQUEST_TIMEOUT);
-    }
-    throw error;
-  } finally {
-    window.clearTimeout(timeoutId);
-  }
-}
-
-/**
- * Reuse the Stripe.js loading promise shared with the regular payment form.
- * @returns {Promise<void>}
- */
-function loadStripeJs() {
-  if (state.stripeLoadingPromise) {
-    return state.stripeLoadingPromise;
-  }
-  if (window[STRIPE_LOADING_PROMISE_KEY]) {
-    state.stripeLoadingPromise = window[STRIPE_LOADING_PROMISE_KEY];
-    return state.stripeLoadingPromise;
-  }
-  if (typeof Stripe !== 'undefined') {
-    return Promise.resolve();
-  }
-  state.stripeLoadingPromise = new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = STRIPE_JS_URL;
-    const timeoutId = window.setTimeout(() => {
-      state.stripeLoadingPromise = null;
-      window[STRIPE_LOADING_PROMISE_KEY] = null;
-      script.remove();
-      reject(new Error(MESSAGES.SDK_TIMEOUT));
-    }, STRIPE_REQUEST_TIMEOUT);
-    script.onload = () => {
-      window.clearTimeout(timeoutId);
-      resolve();
-    };
-    script.onerror = () => {
-      window.clearTimeout(timeoutId);
-      state.stripeLoadingPromise = null;
-      window[STRIPE_LOADING_PROMISE_KEY] = null;
-      reject(new Error(MESSAGES.SDK_LOAD_FAILED));
-    };
-    document.head.appendChild(script);
-  });
-  window[STRIPE_LOADING_PROMISE_KEY] = state.stripeLoadingPromise;
-  return state.stripeLoadingPromise;
-}
-
-/**
- * Read the current customer bearer token from the Drop-in cookie.
+ * Resolve the active cart ID from the Express Checkout state and the shared fallbacks.
  * @returns {string|null}
  */
-function getCustomerTokenFromCookie() {
-  const match = document.cookie.match(CUSTOMER_TOKEN_COOKIE_PATTERN);
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
-/**
- * Resolve the active cart ID using the event and storage fallback order.
- * @param {string|null} [preferredCartId] Explicit cart ID to prefer over stored state.
- * @returns {string|null}
- */
-function getActiveCartId(preferredCartId = null) {
-  return (
-    preferredCartId
-    || state.cartData?.id
-    || state.checkoutData?.id
-    || events.lastPayload(EVENTS.CART_UPDATED)?.id
-    || events.lastPayload(EVENTS.CART_INITIALIZED)?.id
-    || window.sessionStorage.getItem(CART_ID_KEY)
-    || null
-  );
+function getCurrentCartId() {
+  return getActiveCartId(null, state.cartData, state.checkoutData);
 }
 
 /**
@@ -120,10 +45,10 @@ function getStripePaymentMethod() {
 }
 
 /**
- * Check whether Commerce exposes the Stripe payment method.
+ * Check whether the selected or an available Commerce payment method is the Stripe one.
  * @returns {boolean}
  */
-function isStripePaymentMethodAvailable() {
+function isStripeMethodOffered() {
   return Boolean(getStripePaymentMethod());
 }
 
@@ -132,16 +57,10 @@ function isStripePaymentMethodAvailable() {
  * @returns {Object}
  */
 function parseRuntimeConfig() {
-  const backendIntegrationUrl = getStripePaymentMethod()?.oope_payment_method_config
-    ?.backend_integration_url;
-  if (!backendIntegrationUrl) {
-    throw new Error(MESSAGES.CONFIG_UNAVAILABLE);
-  }
-  const parsedConfig = JSON.parse(backendIntegrationUrl);
-  if (!parsedConfig.getInitParamsUrl || !parsedConfig.createPaymentIntentUrl) {
-    throw new Error(MESSAGES.CONFIG_INCOMPLETE);
-  }
-  return parsedConfig;
+  return getStripeRuntimeConfig(
+    getStripePaymentMethod(),
+    [RUNTIME_URL_KEYS.GET_INIT_PARAMS, RUNTIME_URL_KEYS.CREATE_PAYMENT_INTENT],
+  );
 }
 
 /**
@@ -164,13 +83,14 @@ async function fetchInitParams(endpoint) {
  */
 function getPaymentIntentHeaders() {
   const headers = {
-    'Content-Type': 'application/json',
+    [HTTP_HEADERS.CONTENT_TYPE]: JSON_CONTENT_TYPE,
   };
   const customerToken = getCustomerTokenFromCookie();
   if (customerToken) {
-    headers.Authorization = `Bearer ${customerToken}`;
+    headers[HTTP_HEADERS.AUTHORIZATION] = `${BEARER_PREFIX}${customerToken}`;
   }
-  headers.Store = window.localStorage.getItem(STORE_VIEW_KEY) || DEFAULT_STORE_VIEW;
+  headers[HTTP_HEADERS.STORE] = window.localStorage.getItem(STORE_VIEW_STORAGE_KEY)
+    || DEFAULT_STORE_VIEW;
   return headers;
 }
 
@@ -180,10 +100,10 @@ function getPaymentIntentHeaders() {
  * @returns {Promise<Object>}
  */
 async function createPaymentIntent(confirmationTokenId) {
-  const cartId = getActiveCartId();
-  const selectedStore = window.localStorage.getItem(STORE_VIEW_KEY) || DEFAULT_STORE_VIEW;
+  const cartId = getCurrentCartId();
+  const selectedStore = window.localStorage.getItem(STORE_VIEW_STORAGE_KEY) || DEFAULT_STORE_VIEW;
   const response = await fetchStripeResource(state.runtimeConfig.createPaymentIntentUrl, {
-    method: 'POST',
+    method: HTTP_METHOD_POST,
     headers: getPaymentIntentHeaders(),
     body: JSON.stringify({
       cartId,
@@ -204,7 +124,7 @@ async function createPaymentIntent(confirmationTokenId) {
  * @param {string} clientSecret PaymentIntent client secret returned by App Builder.
  * @returns {Promise<Object>}
  */
-async function persistStripePaymentMethod(clientSecret) {
+async function selectStripePaymentMethod(clientSecret) {
   const stripePaymentMethod = getStripePaymentMethod() || {
     code: STRIPE_PAYMENT_METHOD_CODE,
     title: STRIPE_PAYMENT_METHOD_TITLE,
@@ -214,15 +134,7 @@ async function persistStripePaymentMethod(clientSecret) {
     ...checkoutValues,
     selectedPaymentMethod: stripePaymentMethod,
   });
-  const updatedCheckout = await checkoutApi.setPaymentMethod({
-    code: STRIPE_PAYMENT_METHOD_CODE,
-    additional_data: [
-      {
-        key: 'client_secret',
-        value: clientSecret,
-      },
-    ],
-  });
+  const updatedCheckout = await setStripePaymentMethod(clientSecret);
   if (updatedCheckout?.selectedPaymentMethod?.code !== STRIPE_PAYMENT_METHOD_CODE) {
     throw new Error(MESSAGES.METHOD_NOT_PERSISTED);
   }
@@ -241,12 +153,10 @@ async function persistStripePaymentMethod(clientSecret) {
 }
 
 export {
-  getCustomerTokenFromCookie,
-  getActiveCartId,
+  getCurrentCartId,
   createPaymentIntent,
-  persistStripePaymentMethod,
-  isStripePaymentMethodAvailable,
-  loadStripeJs,
+  selectStripePaymentMethod,
+  isStripeMethodOffered,
   parseRuntimeConfig,
   fetchInitParams,
 };

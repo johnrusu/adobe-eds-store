@@ -1,8 +1,14 @@
 import * as cartApi from '@dropins/storefront-cart/api.js';
 import { state } from './checkout-state.js';
 import { getSelectedShippingMethod, isVirtualCart } from './addresses.js';
-import { toStripeMinorUnits } from './money.js';
-import { DIAGNOSTICS, ORDER_SUMMARY, TAX_DISPLAY } from './constants.js';
+import { toStripeMinorUnits } from '../stripe-shared/stripe-helpers.js';
+import {
+  CART_PRICE_KEYS,
+  DIAGNOSTICS,
+  ORDER_SUMMARY,
+  SHIPPING_METHOD_NAME_SEPARATOR,
+  TAX_DISPLAY,
+} from './constants.js';
 
 /**
  * Read a nonnegative money value without accepting missing or mixed-currency data.
@@ -52,8 +58,8 @@ function readAggregate(cart, aggregate, components, currency) {
  */
 function includesTax(setting) {
   if ([TAX_DISPLAY.INCLUDING, TAX_DISPLAY.BOTH, TAX_DISPLAY.BOTH_CHECKOUT,
-    2, 3, '2', '3'].includes(setting)) return true;
-  if ([TAX_DISPLAY.EXCLUDING, 1, '1'].includes(setting)) return false;
+    ...TAX_DISPLAY.LEGACY_INCLUDING].includes(setting)) return true;
+  if ([TAX_DISPLAY.EXCLUDING, ...TAX_DISPLAY.LEGACY_EXCLUDING].includes(setting)) return false;
   return null;
 }
 
@@ -66,7 +72,7 @@ function includesTax(setting) {
  * @returns {number|null} Subtotal in minor units.
  */
 function readSubtotal(cart, inclusive, currency) {
-  const key = inclusive ? 'includingTax' : 'excludingTax';
+  const key = inclusive ? CART_PRICE_KEYS.INCLUDING_TAX : CART_PRICE_KEYS.EXCLUDING_TAX;
   if (cart.subtotal?.[key] != null) return readAmount(cart.subtotal[key], currency);
   if (!Array.isArray(cart.items) || !cart.items.length) return null;
   return sumAmounts(cart.items.map((item) => (
@@ -96,7 +102,12 @@ function buildOrderSummary(cart, method, settings, virtualCart = false) {
 
   const subtotal = readSubtotal(cart, inclusiveItems, currency);
   const subtotalExcl = readSubtotal(cart, false, currency);
-  const tax = readAggregate(cart, 'totalTax', 'appliedTaxes', currency);
+  const tax = readAggregate(
+    cart,
+    CART_PRICE_KEYS.TOTAL_TAX,
+    CART_PRICE_KEYS.APPLIED_TAXES,
+    currency,
+  );
   const discount = cart.discount?.value ? readAmount(cart.discount, currency) : 0;
   if (
     subtotal === null || tax === null || discount === null
@@ -119,7 +130,9 @@ function buildOrderSummary(cart, method, settings, virtualCart = false) {
     const shippingTax = inclusiveShipping ? shipping - shippingExcl : 0;
     if (shippingTax < 0) return fallback;
     embeddedTax += shippingTax;
-    const methodName = [method.carrier?.title, method.title].filter(Boolean).join(' - ');
+    const methodName = [method.carrier?.title, method.title]
+      .filter(Boolean)
+      .join(SHIPPING_METHOD_NAME_SEPARATOR);
     rows.push({
       name: methodName ? `${ORDER_SUMMARY.SHIPPING} (${methodName})` : ORDER_SUMMARY.SHIPPING,
       amount: shipping,

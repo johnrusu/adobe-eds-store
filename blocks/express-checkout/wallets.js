@@ -1,4 +1,10 @@
-import { ELEMENT_CONTAINER_ID } from './constants.js';
+import {
+  ELEMENT_CONTAINER_ID,
+  WALLET_CONTAINER_PREFIX,
+  WALLET_METHOD_MODE,
+  WALLET_NAMES,
+  WALLET_PAYMENT_METHODS,
+} from './constants.js';
 import { createAmazonPayWallet } from './amazon-pay.js';
 
 /**
@@ -16,7 +22,7 @@ import { createAmazonPayWallet } from './amazon-pay.js';
  * @property {boolean} available Most recently reported wallet availability.
  */
 
-const PAYMENT_METHODS = ['link', 'amazonPay', 'applePay', 'googlePay', 'paypal', 'klarna'];
+const PAYMENT_METHODS = Object.values(WALLET_PAYMENT_METHODS);
 
 /**
  * Give each payment-only wallet its own grid item while keeping Magento shipping.
@@ -26,15 +32,17 @@ const PAYMENT_METHODS = ['link', 'amazonPay', 'applePay', 'googlePay', 'paypal',
  */
 function createPaymentWallet(method, name) {
   return {
-    containerId: method === 'link' ? ELEMENT_CONTAINER_ID : `stripe-express-checkout-${name}`,
-    containerClassName: `stripe-express-checkout-${name}`,
+    containerId: method === WALLET_PAYMENT_METHODS.LINK
+      ? ELEMENT_CONTAINER_ID
+      : `${WALLET_CONTAINER_PREFIX}${name}`,
+    containerClassName: `${WALLET_CONTAINER_PREFIX}${name}`,
     collectsShipping: false,
     isEnabled: () => true,
     getOptions: (fields) => ({
       ...fields,
       shippingAddressRequired: false,
       paymentMethods: Object.fromEntries(PAYMENT_METHODS.map((key) => [
-        key, key === method ? 'auto' : 'never',
+        key, key === method ? WALLET_METHOD_MODE.ON : WALLET_METHOD_MODE.OFF,
       ])),
     }),
     container: null,
@@ -45,14 +53,14 @@ function createPaymentWallet(method, name) {
 }
 
 /** @type {WalletDescriptor} Link retains the primary mount and lifecycle reference. */
-export const primaryWallet = createPaymentWallet('link', 'link');
+export const primaryWallet = createPaymentWallet(WALLET_PAYMENT_METHODS.LINK, WALLET_NAMES.LINK);
 
 /** @type {WalletDescriptor[]} DOM order matches the visual and keyboard order. */
 export const wallets = [
   primaryWallet,
   createAmazonPayWallet(),
-  createPaymentWallet('applePay', 'apple-pay'),
-  createPaymentWallet('googlePay', 'google-pay'),
-  createPaymentWallet('paypal', 'paypal'),
-  createPaymentWallet('klarna', 'klarna'),
+  createPaymentWallet(WALLET_PAYMENT_METHODS.APPLE_PAY, WALLET_NAMES.APPLE_PAY),
+  createPaymentWallet(WALLET_PAYMENT_METHODS.GOOGLE_PAY, WALLET_NAMES.GOOGLE_PAY),
+  createPaymentWallet(WALLET_PAYMENT_METHODS.PAYPAL, WALLET_NAMES.PAYPAL),
+  createPaymentWallet(WALLET_PAYMENT_METHODS.KLARNA, WALLET_NAMES.KLARNA),
 ];

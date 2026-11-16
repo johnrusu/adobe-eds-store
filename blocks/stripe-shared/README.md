@@ -24,6 +24,13 @@ There are no options to set. The helpers read the following from the page:
 | `backend_integration_url` of the `oope_stripe` payment method | The App Builder action URLs, as JSON. The block names the URLs it needs. |
 | `sessionStorage` `DROPINS_CART_ID` and the cart events | The active cart ID, when the block has none. |
 
+## Constants
+
+`constants.js` holds every value the helpers and the Stripe blocks share: the payment method code, element IDs and
+classes, timeouts, storage and cookie keys, event names, HTTP header names, the Payment Element option values, the
+currency lists and the customer-facing messages (`STRIPE_MESSAGES`). Blocks import these instead of repeating the
+strings; each block keeps only its own values in a `constants.js` next to it.
+
 ## Exports
 
 | Export | Purpose |

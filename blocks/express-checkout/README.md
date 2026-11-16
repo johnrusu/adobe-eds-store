@@ -32,12 +32,11 @@ defaults an omitted flag to `true`, which can create duplicate customer
 addresses when the order is submitted. Existing checkout addresses are retained;
 the regular checkout form still controls the shopper's choice to save a new address.
 
-Both normal checkout and Express Checkout call `scripts/checkout-addresses.js`
-before payment submission to compare unlinked cart addresses with the authenticated
-customer's saved addresses. A full match reuses `customer_address_id`; unmatched
-addresses keep their existing save choice. If verification fails, checkout reports
-the error before charging the customer. This helper must be copied with the block
-when installing it in another storefront.
+Express Checkout calls `checkout-addresses.js` (in this folder) before payment
+submission to compare unlinked cart addresses with the authenticated customer's
+saved addresses. A full match reuses `customer_address_id`; unmatched addresses
+keep their existing save choice. If verification fails, checkout reports the
+error before charging the customer.
 
 ## Module structure
 
@@ -57,11 +56,14 @@ the exported `decorate`, `renderStripePaymentMethod`, `handleStripePayment`, and
   Amazon compatibility normalizer so field precedence stays consistent.
 - `shipping.js` owns shipping rates, amount calculations,
   and synchronization through the Cart and Checkout Drop-ins.
-- `money.js` provides the shared Stripe minor-unit currency conversion.
+- Stripe minor-unit currency conversion comes from `../stripe-shared/stripe-helpers.js`,
+  the same rules the `stripe-payment` blocks and the App Builder actions use.
 - `order-summary.js` maps Commerce totals and tax-display settings to ECE
   `lineItems`, with a nonnegative Grand Total fallback.
 - `stripe-api.js` loads Stripe.js and calls the existing App Builder and Commerce
   payment APIs.
+- `checkout-addresses.js` matches cart addresses against the customer's saved
+  addresses so order placement reuses them instead of creating duplicates.
 - `checkout-view.js` controls inline alerts, wallet visibility, and the checkout
   blocking overlay.
 - `checkout-state.js` holds the single checkout surface's shared runtime state.
@@ -83,10 +85,10 @@ blocks/express-checkout/
   README.md
   addresses.js
   amazon-pay.js
+  checkout-addresses.js
   checkout-state.js
   checkout-view.js
   constants.js
-  money.js
   order-summary.js
   shipping.js
   stripe-api.js
@@ -94,6 +96,11 @@ blocks/express-checkout/
   stripe-express-checkout.js
   wallets.js
 ```
+
+Also copy the `blocks/stripe-shared/` folder into `blocks/stripe-shared/`. `shipping.js` and `order-summary.js`
+import the Stripe amount conversion from `../stripe-shared/stripe-helpers.js`, and the `stripe-payment` and
+`stripe-payment-ewcs` blocks use the same folder. Copying only `blocks/express-checkout/` leaves that import
+unresolved at runtime.
 
 The storefront must already provide these Drop-ins:
 
@@ -120,12 +127,30 @@ CheckoutProvider.render(PaymentMethods, {
     Title: (ctx) => {
       const expressCheckout = document.createElement('div');
       ctx.appendChild(expressCheckout);
-      renderExpressCheckout(expressCheckout);
+      renderExpressCheckout(expressCheckout, {
+        handleValidation,
+        handleShippingValidation,
+        handleReadiness,
+      });
     },
     Methods: paymentMethodHandlers,
   },
 })(container);
 ```
+
+The second argument is optional. These hooks let the block use the checkout's own
+forms; when one is omitted, that check is skipped:
+
+- `handleValidation(): Promise<boolean>` validates the terms and conditions form.
+- `handleShippingValidation(): Promise<boolean>` validates the shipping and
+  billing forms and shows their field errors.
+- `handleReadiness(): boolean` reports whether the checkout forms are valid. The
+  wallets stay covered until it returns `true`. It runs on every cart and
+  checkout update, so it must only read state: no field errors, no scrolling.
+
+`handleValidation` and `handleShippingValidation` run when a wallet is clicked
+and again when payment is confirmed. A hook returning `false` stops the wallet
+from opening.
 
 The block renders **Express checkout**, the wallet buttons, and an **Or pay
 another way** divider before the regular method selector and Payment Element.
@@ -237,12 +262,11 @@ PaymentIntent requests from authenticated storefronts forward the
 - Confirm requires a complete Magento shipping address and selected method.
   If those are missing, the attempt fails and asks the shopper to finish
   shipping on the checkout page.
-- Magento-owned wallets (Link, Apple Pay, Google Pay, PayPal, Klarna) also
-  validate the Magento shipping and billing forms on click and confirm. A
-  missing required phone number rejects the wallet click, keeps Magento's
-  field error visible, and shows a clear Express Checkout message instead of a
-  generic payment failure. Amazon Pay skips that Magento form check because
-  it collects its own address.
+- Every wallet, Amazon Pay included, validates the Magento shipping and billing
+  forms and the terms checkbox on click and confirm (when the checkout hooks
+  below are provided). A missing required phone number rejects the wallet
+  click, keeps Magento's field error visible, and shows a clear Express Checkout
+  message instead of a generic payment failure.
 - Link confirm does not collect shipping in the wallet. The Magento shipping
   address is attached to `createConfirmationToken()`, and a complete Magento
   shipping address also satisfies billing when Commerce is using

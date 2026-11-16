@@ -25,7 +25,7 @@ If you have not set up your EDS storefront yet,
   npm start
   ```
 
-With your EDS storefront set up, copy the `blocks/stripe-payment/` folder from the app into your EDS project's `blocks/stripe-payment/` directory.
+With your EDS storefront set up, copy the `blocks/stripe-payment/` folder from the app into your EDS project's `blocks/stripe-payment/` directory, and the `blocks/stripe-shared/` folder into `blocks/stripe-shared/`. The block imports its shared helpers (Stripe.js loader, App Builder requests, cart payment and address helpers) from there.
 
 ### Extend the OOPE GraphQL Schema
 
@@ -152,6 +152,24 @@ app in Commerce/App Management so the storefront receives trusted runtime URLs f
 
 The block also forwards the authenticated customer token from the storefront auth drop-in and the active `store-view`
 as the `Store` header to the App Builder `payment-intent` action.
+
+### Payment lifecycle
+
+The block uses deferred-intent Elements, so no PaymentIntent exists while the shopper is still filling in checkout:
+
+1. The block fetches `init-params` and mounts the Payment Element with `stripe.elements({ mode: 'payment', amount, currency })`.
+   The amount is the cart's `total.includingTax`, converted to Stripe minor units (zero- and three-decimal currencies
+   are handled), and it is kept in sync with `cart/updated` until a PaymentIntent exists.
+2. On Place Order, `handleStripePayment()` first calls `elements.submit()` so Stripe validates the form.
+3. Only then does the block call the `payment-intent` action, persist the returned client secret on the Commerce cart,
+   and confirm with `stripe.confirmPayment()`.
+
+`init-params` returns `elementsOptions.captureMethod` (`"automatic"` or `"manual"`). The block passes it as the top-level
+`captureMethod` of `stripe.elements()`. Stripe.js rejects confirmation when it differs from the PaymentIntent's
+`capture_method`, so it must come from the same App Builder configuration that creates the PaymentIntent. Do not nest
+`capture_method` inside `paymentMethodOptions`.
+
+Requests to App Builder time out after 15 seconds, and Stripe.js is loaded once and shared with the Express Checkout block.
 
 ## Styling
 

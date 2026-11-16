@@ -1,18 +1,25 @@
+import {
+  WALLET_CONTAINER_PREFIX,
+  WALLET_METHOD_MODE,
+  WALLET_NAMES,
+  WALLET_PAYMENT_METHODS,
+} from './constants.js';
+
 /** Amazon-specific configuration stays outside the shared confirmation flow. */
 const AMAZON_PAY = Object.freeze({
-  containerId: 'stripe-express-checkout-amazon',
+  containerId: `${WALLET_CONTAINER_PREFIX}${WALLET_NAMES.AMAZON}`,
   otherMethodsDisabled: Object.freeze({
-    applePay: 'never',
-    googlePay: 'never',
-    link: 'never',
-    paypal: 'never',
-    klarna: 'never',
+    [WALLET_PAYMENT_METHODS.APPLE_PAY]: WALLET_METHOD_MODE.OFF,
+    [WALLET_PAYMENT_METHODS.GOOGLE_PAY]: WALLET_METHOD_MODE.OFF,
+    [WALLET_PAYMENT_METHODS.LINK]: WALLET_METHOD_MODE.OFF,
+    [WALLET_PAYMENT_METHODS.PAYPAL]: WALLET_METHOD_MODE.OFF,
+    [WALLET_PAYMENT_METHODS.KLARNA]: WALLET_METHOD_MODE.OFF,
   }),
 });
 
 /** Payment-only wallets must not inherit Amazon's shipping collection policy. */
 export const AMAZON_PAY_DISABLED = Object.freeze({
-  amazonPay: 'never',
+  [WALLET_PAYMENT_METHODS.AMAZON_PAY]: WALLET_METHOD_MODE.OFF,
 });
 
 /**

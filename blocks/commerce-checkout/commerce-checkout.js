@@ -25,7 +25,7 @@ import {
 
 // Payment Services Dropin
 import { PaymentMethodCode } from '@dropins/storefront-payment-services/api.js';
-import { reuseCustomerAddresses } from '../../scripts/checkout-addresses.js';
+import { reuseCustomerAddresses } from '../express-checkout/checkout-addresses.js';
 
 // Block Utilities
 import {
@@ -74,6 +74,7 @@ import {
   BILLING_ADDRESS_DATA_KEY,
   BILLING_FORM_NAME,
   LOGIN_FORM_NAME,
+  ORDER_PLACED_EVENT,
   PURCHASE_ORDER_FORM_NAME,
   SHIPPING_ADDRESS_DATA_KEY,
   SHIPPING_FORM_NAME,
@@ -95,7 +96,7 @@ import { handleStripePayment } from './stripe-flow.js';
 preloadCheckoutSuccess();
 
 function redirectToCartIfEmpty(cartData) {
-  const isOrderPlaced = events.lastPayload('order/placed') !== undefined;
+  const isOrderPlaced = events.lastPayload(ORDER_PLACED_EVENT) !== undefined;
 
   if (!isOrderPlaced && (cartData === null || cartData?.items?.length === 0)) {
     window.location.href = rootLink('/cart');
@@ -175,7 +176,7 @@ export default async function decorate(block) {
   const creditCardFormRef = { current: null };
   const loaderRef = { current: null };
 
-  events.on('order/placed', () => {
+  events.on(ORDER_PLACED_EVENT, () => {
     setMetaTags('Order Confirmation');
     document.title = 'Order Confirmation';
   });
@@ -293,7 +294,7 @@ export default async function decorate(block) {
       endPaymentConfirmation();
       // A placed order keeps the overlay until its confirmation is rendered, see
       // handleOrderPlaced. Otherwise the checkout is usable again while that renders.
-      if (!orderPlaced || events.lastPayload('order/placed') === undefined) {
+      if (!orderPlaced || events.lastPayload(ORDER_PLACED_EVENT) === undefined) {
         finishPlacingOrder();
       }
     }
@@ -359,7 +360,9 @@ export default async function decorate(block) {
     await initReCaptcha(0);
     if (data.isGuest) await displayGuestAddressForms(data);
     else {
-      removeOverlaySpinner(loaderRef, $loader, $loaderStatus);
+      // Placing an order updates the checkout too (payment method, addresses).
+      // The overlay of the order stays until finishPlacingOrder removes it.
+      if (!isPlacingOrder) removeOverlaySpinner(loaderRef, $loader, $loaderStatus);
       await displayCustomerAddressForms(data);
     }
   }
@@ -423,7 +426,7 @@ export default async function decorate(block) {
     // When a customer creates an account on the checkout success page and then
     // signs in, they will be redirected to the order details page with the order
     // number as orderRef, allowing the order details to be displayed
-    const orderData = events.lastPayload('order/placed');
+    const orderData = events.lastPayload(ORDER_PLACED_EVENT);
     if (orderData) {
       const url = buildOrderDetailsUrl(orderData);
       window.history.replaceState({}, '', url);
@@ -459,7 +462,7 @@ export default async function decorate(block) {
   events.on('checkout/initialized', handleCheckoutUpdated, { eager: true });
   events.on('checkout/updated', handleCheckoutUpdated);
   events.on('checkout/values', handleCheckoutValues);
-  events.on('order/placed', handleOrderPlaced);
+  events.on(ORDER_PLACED_EVENT, handleOrderPlaced);
   events.on('cart/initialized', redirectToCartIfEmpty, { eager: true });
   events.on('cart/data', redirectToCartIfEmpty);
 }

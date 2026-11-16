@@ -1,6 +1,9 @@
 import { provider as UI, InLineAlert, Icon } from '@dropins/tools/components.js';
 import { h } from '@dropins/tools/preact.js';
 import {
+  ALERT_VARIANT_PRIMARY,
+  ARIA,
+  FORM_SELECTOR,
   STATUS,
   PAYMENT_STATUS,
   DIAGNOSTICS,
@@ -41,12 +44,12 @@ async function setPaymentStatus(message, status = STATUS.INFO) {
           type: config.type,
         }
         : {}),
-      variant: 'primary',
+      variant: ALERT_VARIANT_PRIMARY,
       icon: h(Icon, {
         source: config.icon,
       }),
-      'aria-live': status === STATUS.ERROR ? 'assertive' : 'polite',
-      role: status === STATUS.ERROR ? 'alert' : 'status',
+      [ARIA.LIVE]: status === STATUS.ERROR ? ARIA.LIVE_ASSERTIVE : ARIA.LIVE_POLITE,
+      [ARIA.ROLE]: status === STATUS.ERROR ? ARIA.ROLE_ALERT : ARIA.ROLE_STATUS,
     })(state.statusContainer);
   } catch (error) {
     console.warn(DIAGNOSTICS.STATUS_RENDER_FAILED, error);
@@ -61,7 +64,7 @@ async function setPaymentStatus(message, status = STATUS.INFO) {
 function getBlockingTarget() {
   return (
     primaryWallet.container?.closest?.(CHECKOUT_SELECTOR)
-    || primaryWallet.container?.closest?.('form')
+    || primaryWallet.container?.closest?.(FORM_SELECTOR)
     || document.body
   );
 }
@@ -78,9 +81,9 @@ function setCheckoutBlocked(blocked) {
   }
   target.classList.toggle(BLOCKED_CLASS, blocked);
   if (blocked) {
-    target.setAttribute('aria-busy', 'true');
+    target.setAttribute(ARIA.BUSY, ARIA.TRUE);
   } else {
-    target.removeAttribute('aria-busy');
+    target.removeAttribute(ARIA.BUSY);
   }
 }
 

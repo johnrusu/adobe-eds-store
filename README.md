@@ -19,6 +19,18 @@ Use the [Site Creator Tool](https://da.live/app/adobe-commerce/storefront-tools/
 
 Alternatively, you can follow our [Guide](https://experienceleague.adobe.com/developer/commerce/storefront/get-started/) for a more detailed walkthrough.
 
+## Pre-commit checks
+
+`npm install` installs the Husky Git hooks automatically. Before each commit, the
+hook checks block READMEs, runs ESLint and Stylelint (`npm run lint`), checks JSON
+formatting with Prettier (`npm run format:check`), and runs the local unit tests
+(`npm test`). A failed check blocks the commit. Component JSON is then rebuilt
+when model partials are staged.
+
+Use `npm run lint:fix` and `npm run format` to fix lint and JSON formatting issues,
+review and stage the fixes, then commit again. The Cypress end-to-end tests remain
+separate from these local checks.
+
 ## Staying Up to Date
 
 Once you fork or clone this repo, the code is yours — you are not subscribed to updates.

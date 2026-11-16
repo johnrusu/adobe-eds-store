@@ -776,7 +776,9 @@ describe('stripe-express-checkout EDS block', () => {
   test.each([
     ['JPY', 4200, 4200],
     ['KWD', 42, 42000],
-  ])('uses Stripe minor units for %s', async (currency, value, amount) => {
+    ['KWD', 4.205, 4210],
+    ['UGX', 5000, 500000],
+  ])('uses Stripe minor units for %s %s', async (currency, value, amount) => {
     const block = loadStripeExpressCheckoutBlock();
 
     await renderAndMount(block, {
@@ -1997,19 +1999,19 @@ describe('stripe-express-checkout EDS block', () => {
     }).map((row) => row.amount)).toEqual([1060, 500, 23]);
   });
 
+  // A three-decimal amount is a multiple of 10, as Stripe requires.
   test.each([
-    ['JPY', 1000, 60, 1060],
-    ['KWD', 1.111, 0.056, 1167],
-  ])('reconciles virtual-cart line items in %s minor units', (currency, subtotal, tax, total) => {
+    ['JPY', 1000, 60, 1060, 1000, 60],
+    ['KWD', 1.11, 0.06, 1.17, 1110, 60],
+  ])('reconciles virtual-cart line items in %s minor units', (currency, subtotal, tax, total, subtotalAmount, taxAmount) => {
     const block = loadStripeExpressCheckoutBlock();
     const { cart } = summaryFixture();
-    const factor = currency === 'JPY' ? 1 : 1000;
-    cart.total.includingTax = { value: total / factor, currency };
+    cart.total.includingTax = { value: total, currency };
     cart.subtotal.excludingTax = { value: subtotal, currency };
     cart.totalTax = { value: tax, currency };
     expect(block.summary.buildOrderSummary(cart, null, { subtotal: 'EXCLUDING_TAX' }, true))
-      .toEqual([{ name: 'Subtotal', amount: Math.round(subtotal * factor) },
-        { name: 'Tax', amount: Math.round(tax * factor) }]);
+      .toEqual([{ name: 'Subtotal', amount: subtotalAmount },
+        { name: 'Tax', amount: taxAmount }]);
   });
 
   test('uses fresh line items on click when shipping changes but the total does not', async () => {

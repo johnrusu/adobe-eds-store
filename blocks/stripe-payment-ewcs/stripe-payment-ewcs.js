@@ -9,9 +9,24 @@ import { events } from '@dropins/tools/event-bus.js';
 
 import { loadCSS } from '../../scripts/aem.js';
 import {
+  CART_EVENTS,
+  CHECKOUT_EVENTS,
+  ELEMENT_OPTION_MODE,
   ELEMENTS_CONTAINER_ID,
+  LOADING_CLASS,
+  PAYMENT_ELEMENT_EVENTS,
+  PAYMENT_ELEMENT_LAYOUT_ACCORDION,
+  PAYMENT_FORM_ID,
+  REDIRECT_IF_REQUIRED,
+  RUNTIME_URL_KEYS,
+  STRIPE_MESSAGES,
   STRIPE_PAYMENT_METHOD_CODE,
+} from '../stripe-shared/constants.js';
+import {
+  clearElementsContainer,
   clearStripeError,
+  createPaymentFormContent,
+  destroyStripeElement,
   displayStripeError,
   getActiveCartId,
   getAddressFullName,
@@ -26,6 +41,21 @@ import {
   removeEmptyStripeValues,
   resetPersistedStripePaymentMethod,
 } from '../stripe-shared/stripe-helpers.js';
+import {
+  CART_INCOMPLETE_ERROR_CODE,
+  CART_INCOMPLETE_HINT,
+  CART_INCOMPLETE_NOTICE_CLASS,
+  CHECKOUT_RESULT_SUCCESS,
+  CHECKOUT_SESSION_ACTION,
+  EWCS_MESSAGES,
+  SESSION_SYNC_DELAY,
+  SESSION_TOTAL_AMOUNT_CLASS,
+  SESSION_TOTAL_CLASS,
+  SESSION_TOTAL_LABEL,
+  SESSION_TOTAL_LABEL_CLASS,
+  STRIPE_JS_URL,
+  STYLESHEET_URL,
+} from './constants.js';
 
 /**
  * Stripe Payment Block - Elements with Checkout Sessions (EwCS)
@@ -37,23 +67,7 @@ import {
  */
 
 // Load the CSS for this block
-loadCSS('/blocks/stripe-payment-ewcs/stripe-payment-ewcs.css');
-
-// Checkout Sessions in Elements mode need this Stripe.js release. It matches the
-// Stripe API version the checkout-session action creates the session with.
-const STRIPE_JS_URL = 'https://js.stripe.com/dahlia/stripe.js';
-// The checkout-session action is deployed in the same App Builder package as payment-intent.
-const CHECKOUT_SESSION_ACTION = 'checkout-session';
-const CART_INCOMPLETE_ERROR_CODE = 'cart_incomplete';
-// Wait for the checkout to settle before replacing the session of a mounted form.
-const SESSION_SYNC_DELAY = 500;
-const PAYMENT_FORM_ID = 'stripe-payment-form';
-const SESSION_TOTAL_CLASS = 'stripe-checkout-total';
-const SESSION_TOTAL_LABEL_CLASS = 'stripe-checkout-total-label';
-const SESSION_TOTAL_AMOUNT_CLASS = 'stripe-checkout-total-amount';
-const LOADING_CLASS = 'stripe-elements-loading';
-const CART_INCOMPLETE_NOTICE_CLASS = 'stripe-cart-incomplete';
-const CART_INCOMPLETE_HINT = 'The payment form loads once the checkout details above are complete.';
+loadCSS(STYLESHEET_URL);
 
 // Global state
 let checkoutData = null;
@@ -79,17 +93,24 @@ let sessionSyncQueued = false;
 let sessionSyncTimer = null;
 let renderGeneration = 0;
 
-// Resolve the checkout-session action URL from the trusted Commerce payment configuration.
+/**
+ * Resolve the checkout-session action URL from the trusted Commerce payment configuration.
+ * @returns {string} The action URL, in the origin and package of the payment-intent action.
+ */
 function getCheckoutSessionUrl() {
   const paymentConfig = getStripeRuntimeConfig(
     checkoutData?.availablePaymentMethods.find(isStripePaymentMethod),
-    ['createPaymentIntentUrl'],
+    [RUNTIME_URL_KEYS.CREATE_PAYMENT_INTENT],
   );
 
   // Same origin and package as the payment-intent action Commerce returned.
   return new URL(CHECKOUT_SESSION_ACTION, paymentConfig.createPaymentIntentUrl).toString();
 }
 
+/**
+ * List the shipping address fields the App Builder action sets on the PaymentIntent.
+ * @returns {Array|null} The fields, or null without a shipping address.
+ */
 function getShippingAddressSignature() {
   const shippingAddress = checkoutData?.shippingAddress;
   if (!shippingAddress) {
@@ -108,8 +129,11 @@ function getShippingAddressSignature() {
   ];
 }
 
-// Cart inputs that make the App Builder action replace the Checkout Session:
-// the total, the email and the shipping address it sets on the PaymentIntent.
+/**
+ * Describe the cart inputs that make the App Builder action replace the Checkout Session:
+ * the total, the email and the shipping address it sets on the PaymentIntent.
+ * @returns {string} The signature.
+ */
 function getSessionSignature() {
   const total = cartData?.total?.includingTax;
 
@@ -122,35 +146,33 @@ function getSessionSignature() {
   ]);
 }
 
-// Create the Checkout Session for the cart, or get the open one while the cart still matches it.
+/**
+ * Create the Checkout Session for the cart, or get the open one while the cart still matches it.
+ * @returns {Promise<Object>} The session data of the checkout-session action.
+ */
 async function requestCheckoutSession() {
   const endpoint = getCheckoutSessionUrl();
   const cartId = getActiveCartId(null, cartData);
 
   if (!cartId) {
-    throw new Error(
-      'Cart ID is not available for Stripe payment initialization.',
-    );
+    throw new Error(STRIPE_MESSAGES.CART_ID_UNAVAILABLE_FOR_INIT);
   }
 
   const cartFullName = getAddressFullName(checkoutData?.billingAddress);
   const data = await postStripeAction(endpoint, { cartId, cartFullName });
 
   if (!data.id || !data.client_secret || !data.publishableKey) {
-    throw new Error('Unable to create Stripe session.');
+    throw new Error(STRIPE_MESSAGES.SESSION_CREATE_FAILED);
   }
 
   return data;
 }
 
+/**
+ * Destroy the mounted Payment Element and forget its session.
+ */
 function destroyPaymentElement() {
-  if (paymentElement) {
-    try {
-      paymentElement.destroy();
-    } catch (error) {
-      console.warn('Unable to destroy Stripe payment element:', error);
-    }
-  }
+  destroyStripeElement(paymentElement);
 
   paymentElement = null;
   checkoutActions = null;
@@ -158,6 +180,9 @@ function destroyPaymentElement() {
   paymentFormComplete = false;
 }
 
+/**
+ * Destroy the mounted Payment Element and forget everything tied to its session.
+ */
 function resetMountedPaymentElement() {
   destroyPaymentElement();
 
@@ -170,26 +195,36 @@ function resetMountedPaymentElement() {
   paymentConfirmed = false;
 }
 
+/**
+ * Build the options of the Payment Element. The checkout form owns the billing details and
+ * passes them on confirmation. A Checkout Session takes a phone number on confirmation only when
+ * it collects phone numbers, so the Payment Element asks for it when the selected payment method
+ * needs one.
+ * @returns {Object} The options.
+ */
 function getPaymentElementOptions() {
   // The checkout form owns the billing details. They are passed on confirmation.
   // A Checkout Session takes a phone number on confirmation only when it
   // collects phone numbers, so the Payment Element asks for it when the
   // selected payment method needs one.
   return {
-    layout: 'accordion',
+    layout: PAYMENT_ELEMENT_LAYOUT_ACCORDION,
     fields: {
       billingDetails: {
-        name: 'never',
-        email: 'never',
-        phone: 'auto',
-        address: 'never',
+        name: ELEMENT_OPTION_MODE.NEVER,
+        email: ELEMENT_OPTION_MODE.NEVER,
+        phone: ELEMENT_OPTION_MODE.AUTO,
+        address: ELEMENT_OPTION_MODE.NEVER,
       },
     },
   };
 }
 
-// Stripe.js requires the integration to read the session total and show it
-// before actions.confirm() can be called.
+/**
+ * Show the session total. Stripe.js requires the integration to read it and show it
+ * before actions.confirm() can be called.
+ * @param {Object} actions Checkout actions of the loaded Checkout Session.
+ */
 function showSessionTotal(actions) {
   const total = actions.getSession()?.total?.total?.amount;
   const paymentForm = document.querySelector(`#${PAYMENT_FORM_ID}`);
@@ -209,11 +244,15 @@ function showSessionTotal(actions) {
     totalElement.appendChild(amount);
     paymentForm.appendChild(totalElement);
   }
-  totalElement.querySelector(`.${SESSION_TOTAL_LABEL_CLASS}`).textContent = total ? 'Amount due' : '';
+  totalElement.querySelector(`.${SESSION_TOTAL_LABEL_CLASS}`).textContent = total ? SESSION_TOTAL_LABEL : '';
   totalElement.querySelector(`.${SESSION_TOTAL_AMOUNT_CLASS}`).textContent = total || '';
 }
 
-// Mount the Payment Element of a Checkout Session, replacing the one of a previous session.
+/**
+ * Mount the Payment Element of a Checkout Session, replacing the one of a previous session.
+ * @param {Object} sessionData Session data of the checkout-session action.
+ * @returns {Promise<void>}
+ */
 async function mountCheckoutSession(sessionData) {
   const mountId = `#${ELEMENTS_CONTAINER_ID}`;
 
@@ -226,9 +265,7 @@ async function mountCheckoutSession(sessionData) {
   }
 
   if (typeof stripe.initCheckoutElementsSdk !== 'function') {
-    throw new Error(
-      `The loaded Stripe.js does not support Checkout Sessions in Elements mode. Load ${STRIPE_JS_URL} on this page.`,
-    );
+    throw new Error(EWCS_MESSAGES.CHECKOUT_SESSIONS_UNSUPPORTED(STRIPE_JS_URL));
   }
 
   const checkout = stripe.initCheckoutElementsSdk({
@@ -240,42 +277,34 @@ async function mountCheckoutSession(sessionData) {
       // shows saved payment methods nor asks for consent to save one: the
       // app saves them for every payment when saving is enabled.
       savedPaymentMethod: {
-        enableSave: 'never',
-        enableRedisplay: 'never',
+        enableSave: ELEMENT_OPTION_MODE.NEVER,
+        enableRedisplay: ELEMENT_OPTION_MODE.NEVER,
       },
     },
   });
   const loadActionsResult = await checkout.loadActions();
 
-  if (loadActionsResult?.type !== 'success' || !loadActionsResult.actions) {
+  if (loadActionsResult?.type !== CHECKOUT_RESULT_SUCCESS || !loadActionsResult.actions) {
     throw new Error(
-      loadActionsResult?.error?.message || 'Failed to load Stripe Checkout actions.',
+      loadActionsResult?.error?.message || EWCS_MESSAGES.CHECKOUT_ACTIONS_LOAD_FAILED,
     );
   }
 
   destroyPaymentElement();
 
   // Make sure the loading container is removed before mounting
-  const container = document.querySelector(mountId);
-  if (container && container.closest(`.${LOADING_CLASS}`)) {
-    container
-      .closest(`.${LOADING_CLASS}`)
-      .classList.remove(LOADING_CLASS);
-  }
-  if (container) {
-    container.innerHTML = '';
-  }
+  clearElementsContainer(mountId);
 
   const element = checkout.createPaymentElement(getPaymentElementOptions());
   element.mount(mountId);
 
   // Track form completion status
-  element.on('change', (event) => {
+  element.on(PAYMENT_ELEMENT_EVENTS.CHANGE, (event) => {
     paymentFormComplete = event.complete;
   });
-  element.on('loaderror', (event) => {
-    console.error('Stripe payment element failed to load:', event?.error);
-    displayStripeError('Unable to load payment form. Please refresh and try again.');
+  element.on(PAYMENT_ELEMENT_EVENTS.LOAD_ERROR, (event) => {
+    console.error(EWCS_MESSAGES.PAYMENT_ELEMENT_LOAD_FAILED_LOG, event?.error);
+    displayStripeError(STRIPE_MESSAGES.PAYMENT_FORM_LOAD_FAILED);
   });
 
   paymentElement = element;
@@ -288,8 +317,11 @@ async function mountCheckoutSession(sessionData) {
   };
 }
 
-// Replace the loading state with what the cart still lacks, as the action reported it.
-// It stays until the form mounts, which empties the container.
+/**
+ * Replace the loading state with what the cart still lacks, as the action reported it.
+ * The notice stays until the form mounts, which empties the container.
+ * @param {string} [message] What the action reported the cart lacks.
+ */
 function showCartIncompleteNotice(message) {
   const container = document.querySelector(`#${ELEMENTS_CONTAINER_ID}`);
   if (!container) {
@@ -306,9 +338,13 @@ function showCartIncompleteNotice(message) {
   notice.textContent = [message, CART_INCOMPLETE_HINT].filter(Boolean).join(' ');
 }
 
-// A guest needs an email and a name before the app can create the session (it creates the
-// Stripe customer from them). Asking earlier only gets a cart_incomplete error, so the first
-// session waits for them, as the stripe-payment block waits for Place Order.
+/**
+ * Tell whether the first session can be requested. A guest needs an email and a name before the
+ * app can create the session (it creates the Stripe customer from them). Asking earlier only gets
+ * a cart_incomplete error, so the first session waits for them, as the stripe-payment block waits
+ * for Place Order. A logged-in customer is never held back.
+ * @returns {boolean} Whether the contact details are there.
+ */
 function hasSessionContactDetails() {
   if (getCustomerTokenFromCookie()) {
     return true;
@@ -321,6 +357,10 @@ function hasSessionContactDetails() {
   );
 }
 
+/**
+ * Tell whether the payment form can be synchronized with the cart now.
+ * @returns {boolean}
+ */
 function canSyncPaymentForm() {
   return Boolean(
     !paymentConfirmed
@@ -332,7 +372,10 @@ function canSyncPaymentForm() {
   );
 }
 
-// Keep the mounted Payment Element on the Checkout Session that matches the cart.
+/**
+ * Keep the mounted Payment Element on the Checkout Session that matches the cart.
+ * @returns {Promise<void>}
+ */
 async function syncPaymentForm() {
   if (!canSyncPaymentForm()) {
     return;
@@ -381,16 +424,16 @@ async function syncPaymentForm() {
 
     if (paymentElement) {
       // The mounted form stays usable; Place Order checks the session again.
-      console.warn('Unable to refresh Stripe session:', error);
+      console.warn(EWCS_MESSAGES.SESSION_REFRESH_FAILED, error);
     } else if (error.code === CART_INCOMPLETE_ERROR_CODE) {
       // The checkout form is not filled in far enough yet. The form mounts on
       // a later checkout or cart update.
       showCartIncompleteNotice(error.message);
     } else {
-      console.error('Error initializing Stripe payment form:', error);
+      console.error(STRIPE_MESSAGES.PAYMENT_FORM_INIT_ERROR, error);
       document.querySelector(`#${ELEMENTS_CONTAINER_ID}`)
         ?.classList.remove(LOADING_CLASS);
-      displayStripeError('Unable to load payment form. Please refresh and try again.');
+      displayStripeError(STRIPE_MESSAGES.PAYMENT_FORM_LOAD_FAILED);
     }
   } finally {
     sessionSyncInFlight = false;
@@ -404,6 +447,9 @@ async function syncPaymentForm() {
   }
 }
 
+/**
+ * Schedule a synchronization of the payment form, once the checkout has settled.
+ */
 function schedulePaymentFormSync() {
   if (!canSyncPaymentForm()) {
     return;
@@ -425,6 +471,10 @@ function schedulePaymentFormSync() {
   }, SESSION_SYNC_DELAY);
 }
 
+/**
+ * Read the billing address of the checkout in the shape Stripe.js expects.
+ * @returns {{name: string, address: Object}}
+ */
 function getCurrentBillingAddress() {
   const billingAddress = checkoutData?.billingAddress || {};
 
@@ -434,6 +484,10 @@ function getCurrentBillingAddress() {
   };
 }
 
+/**
+ * Read the shipping address of the checkout in the shape Stripe.js expects.
+ * @returns {Object} The name and address, empty for a cart that does not ship.
+ */
 function getCurrentShippingAddress() {
   const shippingAddress = checkoutData?.shippingAddress;
   if (!shippingAddress || cartData?.isVirtual || checkoutData?.isVirtual) {
@@ -446,8 +500,12 @@ function getCurrentShippingAddress() {
   };
 }
 
+/**
+ * Build the parameters of the confirmation.
+ * @returns {Object} The confirm parameters.
+ */
 function getConfirmParams() {
-  const params = { redirect: 'if_required' };
+  const params = { redirect: REDIRECT_IF_REQUIRED };
 
   // Stripe already has the email unless the session was created without one.
   if (checkoutSession.emailRequired && checkoutData?.email) {
@@ -468,7 +526,10 @@ function getConfirmParams() {
   return params;
 }
 
-// Check the session against the cart, persist it on the cart and confirm it.
+/**
+ * Check the session against the cart, persist it on the cart and confirm it.
+ * @returns {Promise<boolean>} Whether the payment is confirmed.
+ */
 async function confirmCheckoutSessionPayment() {
   // The amount is fixed in the Checkout Session, so ask App Builder for the
   // session of the cart as it is now. It answers with the mounted session while
@@ -478,7 +539,7 @@ async function confirmCheckoutSessionPayment() {
     currentSession = await requestCheckoutSession();
   } catch (paymentSessionError) {
     displayStripeError(
-      paymentSessionError.message || 'Unable to create Stripe session.',
+      paymentSessionError.message || STRIPE_MESSAGES.SESSION_CREATE_FAILED,
     );
     return false;
   }
@@ -489,16 +550,14 @@ async function confirmCheckoutSessionPayment() {
       await mountCheckoutSession(currentSession);
       sessionSignature = getSessionSignature();
     } catch (mountError) {
-      console.error('Error initializing Stripe payment form:', mountError);
-      displayStripeError(
-        'Stripe payment is not properly initialized. Please refresh and try again.',
-      );
+      console.error(STRIPE_MESSAGES.PAYMENT_FORM_INIT_ERROR, mountError);
+      displayStripeError(STRIPE_MESSAGES.NOT_INITIALIZED);
       return false;
     }
     displayStripeError(
       hadPaymentForm
-        ? 'Your order details changed. Please enter your payment details again.'
-        : 'Please complete your payment details',
+        ? EWCS_MESSAGES.ORDER_DETAILS_CHANGED
+        : STRIPE_MESSAGES.PAYMENT_DETAILS_INCOMPLETE,
     );
     return false;
   }
@@ -506,7 +565,7 @@ async function confirmCheckoutSessionPayment() {
   const { clientSecret } = checkoutSession;
   const didPersistPaymentMethod = await persistStripePaymentMethod(clientSecret);
   if (!didPersistPaymentMethod) {
-    displayStripeError('Failed to set the payment method.');
+    displayStripeError(STRIPE_MESSAGES.PAYMENT_METHOD_NOT_SET);
     return false;
   }
 
@@ -517,14 +576,14 @@ async function confirmCheckoutSessionPayment() {
     result = await checkoutActions.confirm(getConfirmParams());
   } catch (confirmError) {
     displayStripeError(
-      confirmError?.message || 'An error occurred during payment confirmation.',
+      confirmError?.message || STRIPE_MESSAGES.CONFIRMATION_ERROR,
     );
     return false;
   }
 
-  if (result?.type !== 'success') {
+  if (result?.type !== CHECKOUT_RESULT_SUCCESS) {
     displayStripeError(
-      result?.error?.message || 'An error occurred during payment confirmation.',
+      result?.error?.message || STRIPE_MESSAGES.CONFIRMATION_ERROR,
     );
     return false;
   }
@@ -535,7 +594,11 @@ async function confirmCheckoutSessionPayment() {
   return true;
 }
 
-// Handle Stripe payment processing during order placement
+/**
+ * Handle the Stripe payment while the order is placed.
+ * @param {string} cartId Cart ID of the checkout.
+ * @returns {Promise<boolean>} Whether the storefront can place the order.
+ */
 async function handleStripePayment(cartId) {
   // Clear any previous errors
   clearStripeError();
@@ -543,9 +606,7 @@ async function handleStripePayment(cartId) {
   const resolvedCartId = getActiveCartId(cartId, cartData);
 
   if (!resolvedCartId) {
-    displayStripeError(
-      'Cart ID is unavailable. Please refresh checkout and try again.',
-    );
+    displayStripeError(STRIPE_MESSAGES.CART_ID_UNAVAILABLE);
     return false;
   }
 
@@ -565,7 +626,7 @@ async function handleStripePayment(cartId) {
     // Without a mounted form, the confirmation below requests the session: it
     // mounts the form, or shows why the cart cannot have one yet.
     if (paymentElement && !validateStripePayment()) {
-      displayStripeError('Please complete your payment details');
+      displayStripeError(STRIPE_MESSAGES.PAYMENT_DETAILS_INCOMPLETE);
       return false;
     }
 
@@ -587,7 +648,10 @@ async function handleStripePayment(cartId) {
   }
 }
 
-// Render function for the Stripe payment method slot
+/**
+ * Render the Stripe payment method slot.
+ * @param {Object} ctx Slot context of the checkout payment methods.
+ */
 function renderStripePaymentMethod(ctx) {
   renderGeneration += 1;
   // Destroying the Payment Element under a confirmation in progress, for
@@ -599,26 +663,21 @@ function renderStripePaymentMethod(ctx) {
     resetMountedPaymentElement();
   }
 
-  const $content = document.createElement('div');
-  $content.id = PAYMENT_FORM_ID; // Stripe form container
-
-  // Ensure a child element exists for Stripe Elements
-  const $stripeContainer = document.createElement('div');
-  $stripeContainer.id = ELEMENTS_CONTAINER_ID;
-  $stripeContainer.classList.add(LOADING_CLASS);
-
-  $content.appendChild($stripeContainer);
+  const { $content } = createPaymentFormContent();
   ctx.replaceHTML($content);
 
   requestAnimationFrame(() => {
-    checkoutData = events.lastPayload('checkout/updated')
-      || events.lastPayload('checkout/initialized')
+    checkoutData = events.lastPayload(CHECKOUT_EVENTS.UPDATED)
+      || events.lastPayload(CHECKOUT_EVENTS.INITIALIZED)
       || checkoutData;
     syncPaymentForm();
   });
 }
 
-// Validate Stripe payment form - called by checkout validation
+/**
+ * Validate the Stripe payment form. Called by the checkout validation.
+ * @returns {boolean} Whether the payment details are complete.
+ */
 function validateStripePayment() {
   if (!paymentElement) {
     // Nothing to check for another payment method. With Stripe selected, the
@@ -638,12 +697,12 @@ function validateStripePayment() {
 // it finds, so it runs on this release instead of loading v3, with which
 // initCheckoutElementsSdk throws.
 loadStripeJs(STRIPE_JS_URL).catch((error) => {
-  console.warn('Failed to load Stripe.js:', error);
+  console.warn(EWCS_MESSAGES.STRIPE_JS_LOAD_FAILED_LOG, error);
 });
 
 // Listen for checkout initialization to set up Stripe payment
 events.on(
-  'checkout/initialized',
+  CHECKOUT_EVENTS.INITIALIZED,
   (data) => {
     checkoutData = data;
     if (!isStripePaymentMethodAvailable(checkoutData)) {
@@ -652,7 +711,7 @@ events.on(
 
     // Load Stripe.js for payment processing
     loadStripeJs(STRIPE_JS_URL).catch((error) => {
-      console.warn('Failed to load Stripe.js during initialization:', error);
+      console.warn(STRIPE_MESSAGES.STRIPE_JS_INIT_LOAD_FAILED, error);
     });
     schedulePaymentFormSync();
   },
@@ -661,7 +720,7 @@ events.on(
 
 // Listen for cart data
 events.on(
-  'cart/initialized',
+  CART_EVENTS.INITIALIZED,
   (data) => {
     cartData = data;
     schedulePaymentFormSync();
@@ -670,7 +729,7 @@ events.on(
 );
 
 events.on(
-  'cart/updated',
+  CART_EVENTS.UPDATED,
   (data) => {
     cartData = data;
     schedulePaymentFormSync();
@@ -679,7 +738,7 @@ events.on(
 );
 
 // Listen for checkout updates
-events.on('checkout/updated', (data) => {
+events.on(CHECKOUT_EVENTS.UPDATED, (data) => {
   checkoutData = data;
   schedulePaymentFormSync();
 });
