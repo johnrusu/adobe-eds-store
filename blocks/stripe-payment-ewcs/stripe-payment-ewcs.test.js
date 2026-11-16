@@ -352,6 +352,14 @@ function loadStripePaymentBlock({
   };
 }
 
+function shippingMethodPayload(amount = 5) {
+  return {
+    carrier: { code: "flatrate" },
+    code: "flatrate",
+    amount: { value: amount, currency: "USD" },
+  };
+}
+
 function checkoutPayload(overrides = {}) {
   return {
     email: "customer@example.com",
@@ -386,6 +394,7 @@ function checkoutPayload(overrides = {}) {
       region: { code: "" },
       country: { code: "GB" },
       postcode: "SW1A 1AA",
+      selectedShippingMethod: shippingMethodPayload(),
     },
     ...overrides,
   };
@@ -659,12 +668,87 @@ describe("stripe-payment-ewcs EDS block", () => {
         checkout: checkoutPayload({
           email: "",
           billingAddress: emptyAddress,
-          shippingAddress: emptyAddress,
+          shippingAddress: {
+            ...emptyAddress,
+            selectedShippingMethod: shippingMethodPayload(),
+          },
         }),
       });
 
       expect(block.checkoutSessionCalls()).toHaveLength(1);
       expect(block.paymentElements).toHaveLength(1);
+    });
+
+    test("waits for the shipping address and method, also for a logged-in customer", async () => {
+      const block = loadStripePaymentBlock();
+      block.document.cookie = "auth_dropin_user_token=customer%20token";
+      const noMethod = {
+        ...checkoutPayload().shippingAddress,
+        selectedShippingMethod: undefined,
+      };
+
+      await renderAndMount(block, {
+        checkout: checkoutPayload({ shippingAddress: noMethod }),
+      });
+      await block.runSessionSyncTimer();
+
+      // The total is not final until the shipping method is selected.
+      expect(block.checkoutSessionCalls()).toHaveLength(0);
+      expect(block.errorText()).toBeNull();
+      expect(block.cartIncompleteText()).toBe(
+        "The payment form loads once the checkout details above are complete.",
+      );
+
+      await block.events.emit("checkout/updated", checkoutPayload());
+      await block.runSessionSyncTimer();
+
+      expect(block.checkoutSessionCalls()).toHaveLength(1);
+      expect(block.paymentElements).toHaveLength(1);
+    });
+
+    test("does not wait for a shipping method on a virtual cart", async () => {
+      const block = loadStripePaymentBlock();
+
+      await renderAndMount(block, {
+        checkout: checkoutPayload({ isVirtual: true, shippingAddress: undefined }),
+      });
+
+      expect(block.checkoutSessionCalls()).toHaveLength(1);
+      expect(block.paymentElements).toHaveLength(1);
+    });
+
+    test("replaces the session when the shipping method changes, before the cart total does", async () => {
+      const block = loadStripePaymentBlock({
+        onCheckoutSession: (() => {
+          let count = 0;
+          return () => {
+            count += 1;
+            return checkoutSessionResponse(
+              checkoutSessionPayload({
+                id: `cs_test_${count}`,
+                client_secret: `cs_test_${count}_secret_abc`,
+              }),
+            );
+          };
+        })(),
+      });
+      await renderAndMount(block);
+      expect(block.paymentElements).toHaveLength(1);
+
+      // The cart event with the new total comes later; the checkout reports the method first.
+      await block.events.emit(
+        "checkout/updated",
+        checkoutPayload({
+          shippingAddress: {
+            ...checkoutPayload().shippingAddress,
+            selectedShippingMethod: shippingMethodPayload(9),
+          },
+        }),
+      );
+      await block.runSessionSyncTimer();
+
+      expect(block.checkoutSessionCalls()).toHaveLength(2);
+      expect(block.paymentElements).toHaveLength(2);
     });
 
     test("shows the session total Stripe requires before confirmation", async () => {

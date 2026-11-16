@@ -108,7 +108,9 @@ function getCheckoutSessionUrl() {
 }
 
 /**
- * List the shipping address fields the App Builder action sets on the PaymentIntent.
+ * List the shipping address fields the App Builder action sets on the PaymentIntent, and the
+ * selected shipping method, which sets the shipping cost of the total. The checkout reports the
+ * method at once, while the cart total follows with the cart event.
  * @returns {Array|null} The fields, or null without a shipping address.
  */
 function getShippingAddressSignature() {
@@ -126,6 +128,9 @@ function getShippingAddressSignature() {
     shippingAddress.postCode || shippingAddress.postcode,
     shippingAddress.country?.code || shippingAddress.country?.value || shippingAddress.countryCode,
     shippingAddress.telephone,
+    shippingAddress.selectedShippingMethod?.carrier?.code,
+    shippingAddress.selectedShippingMethod?.code,
+    shippingAddress.selectedShippingMethod?.amount?.value,
   ];
 }
 
@@ -339,13 +344,20 @@ function showCartIncompleteNotice(message) {
 }
 
 /**
- * Tell whether the first session can be requested. A guest needs an email and a name before the
- * app can create the session (it creates the Stripe customer from them). Asking earlier only gets
- * a cart_incomplete error, so the first session waits for them, as the stripe-payment block waits
- * for Place Order. A logged-in customer is never held back.
- * @returns {boolean} Whether the contact details are there.
+ * Tell whether the first session can be requested. The amount of a session is fixed, so a cart
+ * that ships waits for its shipping address and method: asking earlier creates a session for a
+ * total that is about to change, and replacing it wipes the card details the shopper entered.
+ * A guest also needs an email and a name before the app can create the session (it creates the
+ * Stripe customer from them); asking earlier only gets a cart_incomplete error. The first session
+ * waits for all of that, as the stripe-payment block waits for Place Order.
+ * @returns {boolean} Whether the checkout has what the first session needs.
  */
-function hasSessionContactDetails() {
+function isReadyForFirstSession() {
+  const needsShipping = !(cartData?.isVirtual || checkoutData?.isVirtual);
+  if (needsShipping && !checkoutData?.shippingAddress?.selectedShippingMethod) {
+    return false;
+  }
+
   if (getCustomerTokenFromCookie()) {
     return true;
   }
@@ -398,7 +410,7 @@ async function syncPaymentForm() {
       sessionSyncQueued = false;
       const signature = getSessionSignature();
 
-      if (!paymentElement && !hasSessionContactDetails()) {
+      if (!paymentElement && !isReadyForFirstSession()) {
         // No request yet. The form mounts on a later checkout update.
         showCartIncompleteNotice();
       } else if (!paymentElement || signature !== sessionSignature) {

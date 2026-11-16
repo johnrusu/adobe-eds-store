@@ -201,10 +201,18 @@ as the `Store` header to the App Builder `checkout-session` action.
 The capture mode and the saved payment method setting are part of the Checkout Session, so the block has no
 `init-params` call and no capture option of its own.
 
-Until a guest has entered an email and a name (billing, else shipping), the block sends no request at all: it shows
-the note that the payment form loads once the checkout details are complete, and requests the first session on the
-checkout update that completes them. A logged-in customer is not held back. This keeps a fresh checkout free of failed
-`checkout-session` calls, as with the `stripe-payment` block, which only contacts App Builder (`init-params`) until Place Order.
+The amount of a Checkout Session is fixed, so the block sends no request until the cart has what makes its total final:
+a cart that ships needs its shipping address and a selected shipping method, and a guest also needs an email and a name
+(billing, else shipping). Until then the block shows the note that the payment form loads once the checkout details are
+complete, and it requests the first session on the checkout update that completes them. A virtual cart needs no shipping
+method, and a logged-in customer needs no email or name. This keeps a fresh checkout free of failed `checkout-session`
+calls, as with the `stripe-payment` block, which only contacts App Builder (`init-params`) until Place Order, and it
+keeps the Payment Element from mounting for a total that is about to change.
+
+The selected shipping method is part of the cart inputs the block watches. The checkout reports it at once, while the
+cart total follows with a later cart event, so a changed shipping cost replaces the session as soon as it is selected.
+Card details entered before a replacement have to be entered again; Place Order then shows "Your order details
+changed. Please enter your payment details again." only when the cart changed after the form was mounted.
 
 For what the block cannot know, such as a shipping address that is still incomplete, the action answers with the `cart_incomplete` code. This only happens
 for a guest when saving payment methods is enabled, because the Stripe customer needs an email, a name and, for a
