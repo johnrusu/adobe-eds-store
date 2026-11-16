@@ -1,6 +1,7 @@
 /* eslint-disable import/no-unresolved */
 /* eslint-disable no-unused-vars */
 /* eslint-disable no-console */
+/* eslint-disable no-await-in-loop */
 /* global Stripe */
 
 // Dropin Tools

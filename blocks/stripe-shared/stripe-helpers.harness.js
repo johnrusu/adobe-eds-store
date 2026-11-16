@@ -1,3 +1,4 @@
+/* eslint-disable quotes, operator-linebreak */
 const fs = require("fs");
 const path = require("path");
 

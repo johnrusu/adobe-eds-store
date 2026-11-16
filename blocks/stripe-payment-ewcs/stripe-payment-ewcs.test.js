@@ -1,3 +1,5 @@
+/* eslint-env node, jest */
+/* eslint-disable quotes, indent, implicit-arrow-linebreak, no-confusing-arrow, import/extensions */
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");

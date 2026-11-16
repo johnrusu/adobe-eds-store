@@ -557,7 +557,7 @@ function createStripe(publishableKey, options) {
     if (!options?.apiVersion || !/apiVersion/i.test(error?.message || '')) {
       throw error;
     }
-    const { apiVersion, ...releaseOptions } = options;
+    const { apiVersion: _apiVersion, ...releaseOptions } = options;
     return Stripe(publishableKey, releaseOptions);
   }
 }
