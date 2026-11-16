@@ -252,12 +252,19 @@ export default async function decorate(block) {
     $content.setAttribute('aria-busy', String(busy));
   };
 
+  const finishPlacingOrder = () => {
+    removeOverlaySpinner(loaderRef, $loader, $loaderStatus);
+    setCheckoutBusy(false);
+    isPlacingOrder = false;
+  };
+
   const handlePlaceOrder = async ({ cartId, code }) => {
     if (isPlacingOrder) return;
     isPlacingOrder = true;
     setCheckoutBusy(true);
     await displayOverlaySpinner(loaderRef, $loader, $loaderStatus);
     beginPaymentConfirmation();
+    let orderPlaced = false;
     try {
       await reuseCustomerAddresses(await getCart());
       // Payment Services credit card
@@ -278,14 +285,17 @@ export default async function decorate(block) {
       }
       // Place order
       await orderApi.placeOrder(cartId);
+      orderPlaced = true;
     } catch (error) {
       console.error(error);
       throw error;
     } finally {
       endPaymentConfirmation();
-      removeOverlaySpinner(loaderRef, $loader, $loaderStatus);
-      setCheckoutBusy(false);
-      isPlacingOrder = false;
+      // A placed order keeps the overlay until its confirmation is rendered, see
+      // handleOrderPlaced. Otherwise the checkout is usable again while that renders.
+      if (!orderPlaced || events.lastPayload('order/placed') === undefined) {
+        finishPlacingOrder();
+      }
     }
   };
 
@@ -438,7 +448,11 @@ export default async function decorate(block) {
     // confirmation cannot land on the consumed checkout page.
     window.history.replaceState({}, '', url);
 
-    await renderCheckoutSuccess(block, { orderData });
+    try {
+      await renderCheckoutSuccess(block, { orderData });
+    } finally {
+      finishPlacingOrder();
+    }
   }
 
   events.on('authenticated', handleAuthenticated);
