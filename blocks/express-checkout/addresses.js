@@ -1,19 +1,14 @@
 import { state } from './checkout-state.js';
 import { normalizeAmazonPayAddress } from './amazon-pay.js';
 import { MESSAGES } from './constants.js';
+import { readCheckoutShippingAddress } from '../stripe-shared/stripe-helpers.js';
 
 /**
  * Read shipping from supported Commerce cart model shapes.
  * @returns {Object|null}
  */
 function getCheckoutShippingAddress() {
-  return (
-    state.checkoutData?.shippingAddress
-    || state.checkoutData?.shippingAddresses?.[0]
-    || state.checkoutData?.shipping_address
-    || state.checkoutData?.shipping_addresses?.[0]
-    || null
-  );
+  return readCheckoutShippingAddress(state.checkoutData);
 }
 
 /**

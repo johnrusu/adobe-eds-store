@@ -706,6 +706,28 @@ describe("stripe-payment-ewcs EDS block", () => {
       expect(block.paymentElements).toHaveLength(1);
     });
 
+    test("reads the shipping address from the shipping addresses list of the checkout", async () => {
+      const block = loadStripePaymentBlock();
+      // The Checkout drop-in reports the address in this list, not as a single address.
+      const listed = checkoutPayload({
+        shippingAddress: undefined,
+        shippingAddresses: [checkoutPayload().shippingAddress],
+      });
+
+      await renderAndMount(block, { checkout: listed });
+
+      expect(block.checkoutSessionCalls()).toHaveLength(1);
+      expect(block.paymentElements).toHaveLength(1);
+
+      // The listed address reaches the confirmation of a cart that ships.
+      block.emitPaymentComplete();
+      await block.exports.handleStripePayment("cart_123");
+      expect(block.confirm.mock.calls[0][0].shippingAddress).toEqual({
+        name: "Ada Lovelace",
+        address: expect.objectContaining({ line1: "1 Algorithm Way", country: "GB" }),
+      });
+    });
+
     test("does not wait for a shipping method on a virtual cart", async () => {
       const block = loadStripePaymentBlock();
 

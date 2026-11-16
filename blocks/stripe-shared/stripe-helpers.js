@@ -367,6 +367,22 @@ export function resetPersistedStripePaymentMethod() {
 }
 
 /**
+ * Read the shipping address from the supported shapes of the checkout and cart models: a single
+ * address, or the first of the shipping addresses, in camel or snake case.
+ * @param {Object|null} [checkoutData] Checkout or cart data.
+ * @returns {Object|null} The shipping address, or null.
+ */
+export function readCheckoutShippingAddress(checkoutData) {
+  return (
+    checkoutData?.shippingAddress
+    || checkoutData?.shippingAddresses?.[0]
+    || checkoutData?.shipping_address
+    || checkoutData?.shipping_addresses?.[0]
+    || null
+  );
+}
+
+/**
  * Join the first and last name of an address.
  * @param {Object} [address] Checkout drop-in address.
  * @returns {string} The full name, empty when the address has none.

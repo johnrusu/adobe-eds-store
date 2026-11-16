@@ -38,6 +38,7 @@ import {
   loadStripeJs,
   persistStripePaymentMethod,
   postStripeAction,
+  readCheckoutShippingAddress,
   removeEmptyStripeValues,
   resetPersistedStripePaymentMethod,
 } from '../stripe-shared/stripe-helpers.js';
@@ -114,7 +115,7 @@ function getCheckoutSessionUrl() {
  * @returns {Array|null} The fields, or null without a shipping address.
  */
 function getShippingAddressSignature() {
-  const shippingAddress = checkoutData?.shippingAddress;
+  const shippingAddress = readCheckoutShippingAddress(checkoutData);
   if (!shippingAddress) {
     return null;
   }
@@ -354,7 +355,7 @@ function showCartIncompleteNotice(message) {
  */
 function isReadyForFirstSession() {
   const needsShipping = !(cartData?.isVirtual || checkoutData?.isVirtual);
-  if (needsShipping && !checkoutData?.shippingAddress?.selectedShippingMethod) {
+  if (needsShipping && !readCheckoutShippingAddress(checkoutData)?.selectedShippingMethod) {
     return false;
   }
 
@@ -365,7 +366,7 @@ function isReadyForFirstSession() {
   return Boolean(
     checkoutData?.email
       && (getAddressFullName(checkoutData.billingAddress)
-        || getAddressFullName(checkoutData.shippingAddress)),
+        || getAddressFullName(readCheckoutShippingAddress(checkoutData))),
   );
 }
 
@@ -501,7 +502,7 @@ function getCurrentBillingAddress() {
  * @returns {Object} The name and address, empty for a cart that does not ship.
  */
 function getCurrentShippingAddress() {
-  const shippingAddress = checkoutData?.shippingAddress;
+  const shippingAddress = readCheckoutShippingAddress(checkoutData);
   if (!shippingAddress || cartData?.isVirtual || checkoutData?.isVirtual) {
     return {};
   }
