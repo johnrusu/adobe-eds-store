@@ -26,6 +26,28 @@
     margin: 0;
 }
 
+.commerce-checkout .checkout__stripe-flow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-xsmall) var(--spacing-medium);
+    margin: 0 0 var(--spacing-big);
+    padding: 0;
+    border: 0;
+}
+
+.commerce-checkout .checkout__stripe-flow legend {
+    margin-bottom: var(--spacing-xsmall);
+    padding: 0;
+    font-weight: 600;
+}
+
+.commerce-checkout .checkout__stripe-flow label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-xsmall);
+    cursor: pointer;
+}
+
 .commerce-checkout .checkout__local-testing-notice {
     overflow: hidden;
 }

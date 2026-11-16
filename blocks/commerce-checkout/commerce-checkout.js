@@ -90,7 +90,7 @@ import '../../scripts/initializers/payment-services.js';
 
 // Checkout success block import and CSS preload
 import { renderCheckoutSuccess, preloadCheckoutSuccess } from '../commerce-checkout-success/commerce-checkout-success.js';
-import { handleStripePayment } from '../stripe-payment/stripe-payment.js';
+import { handleStripePayment } from './stripe-flow.js';
 
 preloadCheckoutSuccess();
 

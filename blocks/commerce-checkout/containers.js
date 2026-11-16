@@ -69,7 +69,7 @@ import {
   rootLink,
 } from '../../scripts/commerce.js';
 import renderExpressCheckout from '../express-checkout/stripe-express-checkout.js';
-import { renderStripePaymentMethod } from '../stripe-payment/stripe-payment.js';
+import { renderStripePaymentMethod } from './stripe-flow.js';
 
 // Constants
 import {

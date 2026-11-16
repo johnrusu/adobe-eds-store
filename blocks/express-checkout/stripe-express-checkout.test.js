@@ -714,6 +714,37 @@ describe('stripe-express-checkout EDS block', () => {
     expect(block.localStorage.setItem).not.toHaveBeenCalled();
   });
 
+  test('creates Stripe without apiVersion when the loaded Stripe.js release refuses it', async () => {
+    const block = loadStripeExpressCheckoutBlock({
+      initParams: initParamsPayload({
+        options: { apiVersion: '2025-02-24.acacia', locale: 'auto' },
+      }),
+    });
+    block.Stripe.mockImplementationOnce(() => {
+      throw new Error('Unsupported on version [dahlia]: Can not provide apiVersion to Stripe()');
+    });
+
+    await renderAndMount(block);
+
+    expect(block.Stripe).toHaveBeenCalledTimes(2);
+    expect(block.Stripe).toHaveBeenNthCalledWith(1, 'pk_test_123', { apiVersion: '2025-02-24.acacia', locale: 'auto' });
+    expect(block.Stripe).toHaveBeenNthCalledWith(2, 'pk_test_123', { locale: 'auto' });
+    expect(block.expressCheckoutElement.mount).toHaveBeenCalledWith('#stripe-express-checkout-element');
+  });
+
+  test('keeps apiVersion for a Stripe.js release that accepts it', async () => {
+    const block = loadStripeExpressCheckoutBlock({
+      initParams: initParamsPayload({
+        options: { apiVersion: '2025-02-24.acacia', locale: 'auto' },
+      }),
+    });
+
+    await renderAndMount(block);
+
+    expect(block.Stripe).toHaveBeenCalledTimes(1);
+    expect(block.Stripe).toHaveBeenCalledWith('pk_test_123', { apiVersion: '2025-02-24.acacia', locale: 'auto' });
+  });
+
   test('passes manual capture from init-params as top-level Elements captureMethod', async () => {
     const block = loadStripeExpressCheckoutBlock({
       initParams: initParamsPayload({

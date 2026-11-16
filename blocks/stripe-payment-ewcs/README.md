@@ -1,0 +1,251 @@
+# Stripe EDS Block - Elements with Checkout Sessions
+
+An injectable EDS block by Stripe that provides encapsulated, reusable payment functionality, such as
+rendering the payment form, processing payments and handling payment errors.
+
+This block uses Stripe's Elements with Checkout Sessions (EwCS) flow: the Payment Element is initialized from a
+Checkout Session created by the Stripe app for Adobe Commerce. It is the counterpart of the `stripe-payment` block,
+which uses PaymentIntents. Both blocks are built to give the same orders, statuses, capture modes and redirect payment
+methods; live testing of this block is in progress. Use one of the two blocks on a checkout page, not both.
+
+## Requirements
+
+- A version of the Stripe app for Adobe Commerce that deploys the `checkout-session` and `checkout-session-return`
+  actions.
+- No change to the Commerce payment method registration or to the Stripe webhook endpoint.
+
+## Installation and usage
+
+### Add the block to your EDS storefront
+
+If you have not set up your EDS storefront yet,
+
+- [See an overview](https://experienceleague.adobe.com/developer/commerce/storefront/get-started/) of the EDS storefront architecture.
+- [Install dependencies](https://github.com/adobe-commerce/aio-cli-plugin-commerce?tab=readme-ov-file#prerequisites) required to set up an EDS storefront locally.
+- Set up the EDS storefront using the below commands:
+
+  ```sh
+  # Run these commands from your desired project directory
+  aio login
+  gh auth login
+  aio commerce init
+  git clone git@github.com:user/initialized-eds-storefront.git
+  cd initialized-eds-storefront
+
+  # Run from the EDS storefront root directory
+  npm start
+  ```
+
+With your EDS storefront set up, copy the `blocks/stripe-payment-ewcs/` folder from the app into your EDS project's `blocks/stripe-payment-ewcs/` directory, and the `blocks/stripe-shared/` folder into `blocks/stripe-shared/`. The block imports its shared helpers (Stripe.js loader, App Builder requests, cart payment and address helpers) from there; the `stripe-payment` block uses the same folder.
+
+### Extend the OOPE GraphQL Schema
+
+Stripe requires initialization data from the Adobe Commerce GraphQL API.
+You can extend the GraphQL schema to return that data by making the below adjustments:
+
+1. In `build.mjs` at the root folder of your EDS Storefront, add the following code to extend the OOPE GraphQL schema:
+
+```js
+overrideGQLOperations([
+  {
+    npm: "@dropins/storefront-checkout",
+    operations: [
+      `
+  fragment CHECKOUT_DATA_FRAGMENT on Cart {
+    available_payment_methods {
+      code
+      title
+      oope_payment_method_config {
+        backend_integration_url
+        custom_config {
+          ... on CustomConfigKeyValue {
+              key
+              value
+          }
+        }
+      }
+    }
+    selected_payment_method {
+      code
+      title
+      oope_payment_method_config {
+        backend_integration_url
+        custom_config {
+          ... on CustomConfigKeyValue {
+              key
+              value
+          }
+        }
+      }
+    }
+  }
+`,
+    ],
+  },
+]);
+```
+
+2. Build the new schema by running `npm install` from the EDS storefront root directory. If successful, the new fragments will be added
+   inside `scripts/__dropins__/storefront-checkout/fragments.js`.
+
+3. The new data in the updated schema must be allowed through the checkout's data transformer.
+   Edit your `scripts/initializers/checkout.js` to allow the data through the transformer.
+
+```js
+await initializeDropin(async () => {
+  ...
+  return initializers.mountImmediately(initialize, {
+      langDefinitions,
+      models: {
+        CartModel: {
+            transformer: (data) => {
+              return {
+                  availablePaymentMethods: data?.available_payment_methods,
+                  selectedPaymentMethod: data?.selected_payment_method,
+              };
+            },
+        },
+      },
+  });
+})();
+```
+
+### Integrate the Stripe EDS block into your commerce-checkout block:
+
+A boilerplate Commerce EDS storefront will use the `commerce-checkout` block which is located under
+`blocks/commerce-checkout/commerce-checkout.js`. You can integrate this with
+Stripe by making some simple adjustments.
+
+First, import the Stripe block's javascript component:
+
+```javascript
+import * as stripe from "../stripe-payment-ewcs/stripe-payment-ewcs.js";
+```
+
+Next, find the payment methods renderer and add a slot for the `oope_stripe` payment method code:
+
+```javascript
+CheckoutProvider.render(PaymentMethods, {
+  slots: {
+    Methods: {
+      ...
+      oope_stripe: {
+        render: stripe.renderStripePaymentMethod,
+      },
+      ...
+    },
+  },
+})
+```
+
+Finally, extend your `handlePlaceOrder` method to call the Stripe drop-in methods:
+
+```javascript
+CheckoutProvider.render(PlaceOrder, {
+  handlePlaceOrder: async ({ cartId, code }) => {
+    ...
+    if (code === 'oope_stripe') {
+      if (!await stripe.handleStripePayment(cartId)) {
+        return;
+      }
+    }
+    ...
+    await orderApi.placeOrder(cartId);
+  },
+})
+```
+
+### Switching from the `stripe-payment` block
+
+The exported functions are the same (`renderStripePaymentMethod`, `handleStripePayment`, `validateStripePayment`),
+and so are the GraphQL schema extension and the checkout integration above. To switch, copy this folder into the
+storefront and change the import path in `commerce-checkout.js`.
+
+### Runtime action URLs
+
+The block reads the App Builder action URLs from the `oope_payment_method_config.backend_integration_url`
+value returned by Commerce GraphQL. Do not hard-code or override these URLs in the storefront; configure the Stripe
+app in Commerce/App Management so the storefront receives trusted runtime URLs from Commerce.
+
+The `checkout-session` action is deployed in the same App Builder package as `payment-intent`. The block resolves
+its URL from the `createPaymentIntentUrl` value Commerce returns, so the payment method registration is the same
+for both blocks.
+
+The block also forwards the authenticated customer token from the storefront auth drop-in and the active `store-view`
+as the `Store` header to the App Builder `checkout-session` action.
+
+### Payment lifecycle
+
+1. When the payment method slot renders, the block calls the `checkout-session` action with the cart ID. The action
+   reads the cart total from Commerce, creates a Checkout Session for it and returns the session client secret with
+   the publishable key. The storefront never sends an amount.
+2. The block mounts the Payment Element with `stripe.initCheckoutElementsSdk({ clientSecret })`. Saved payment
+   methods are not shown and the Payment Element asks for no consent to save one (`enableRedisplay` and `enableSave`
+   are `never`), as with the `stripe-payment` block. Below the form the block shows the amount due that it reads
+   from the session, which Stripe.js requires before `actions.confirm()`.
+3. When the cart total, the cart email or the shipping address changes, the block waits 500 ms for the checkout to
+   settle and calls the action again. The action returns the same session while the cart still matches it, and a new
+   one otherwise. The block then mounts the Payment Element of the new session, and payment details entered before
+   that have to be entered again.
+4. On Place Order, `handleStripePayment()` calls the action once more, so the session is checked against the cart
+   as it is at that moment. If the session changed, the block mounts the new one and stops, without charging.
+5. The block persists the session client secret on the Commerce cart and confirms with `actions.confirm()`, passing
+   the billing address, and the shipping address for a cart that ships. From Place Order until the confirmation ends,
+   for example during a 3D Secure challenge, checkout updates do not replace the session; they are applied after the
+   attempt. A render of the payment slot in that time keeps the Payment Element being confirmed; the new slot gets its
+   form after a failed attempt. Place Order first waits for a session refresh already in flight, then checks the form.
+6. After a successful confirmation the storefront places the Commerce order. For redirect-based payment methods the
+   shopper leaves the page on confirmation. Stripe returns them to the `checkout-session-return` action, and the
+   app places the order from the Stripe webhook, as with the `stripe-payment` block.
+
+The capture mode and the saved payment method setting are part of the Checkout Session, so the block has no
+`init-params` call and no capture option of its own.
+
+Until a guest has entered an email and a name (billing, else shipping), the block sends no request at all: it shows
+the note that the payment form loads once the checkout details are complete, and requests the first session on the
+checkout update that completes them. A logged-in customer is not held back. This keeps a fresh checkout free of failed
+`checkout-session` calls, as with the `stripe-payment` block, which only contacts App Builder (`init-params`) until Place Order.
+
+For what the block cannot know, such as a shipping address that is still incomplete, the action answers with the `cart_incomplete` code. This only happens
+for a guest when saving payment methods is enabled, because the Stripe customer needs an email, a name and, for a
+cart that ships, a complete shipping address. In place of the loading state the block shows the action's message,
+for example "Customer name is required to create a payment for this cart.", with a note that the payment form loads
+once the checkout details are complete. It mounts the form on the next checkout update that completes the cart.
+
+The Payment Element takes the name, email and address from the checkout form. It asks for a phone number only when
+the selected payment method needs one, because a Checkout Session accepts a phone number on confirmation only when it
+collects phone numbers itself.
+
+Requests to App Builder time out after 15 seconds.
+
+### Stripe.js release
+
+Checkout Sessions in Elements mode need a named release of Stripe.js. The block loads `dahlia` from
+`https://js.stripe.com/dahlia/stripe.js`. It is the release of the Stripe API version the `checkout-session` action
+creates sessions with (`2026-06-24.dahlia`); Stripe recommends keeping the two on the same release.
+
+`https://js.stripe.com/v3/` is not enough. Compared on 2026-11-12, the `v3` and `dahlia` files are the same code with a
+different release name inside, and the release name decides the behavior. On `v3`, `stripe.initCheckoutElementsSdk`
+exists but throws `IntegrationError: You must upgrade to the Basil release or higher to use initCheckout`. On `dahlia`
+it works, and the old `stripe.initCheckout()` name throws "has been removed".
+
+The block shares one Stripe.js loader (`window.__stripeJsLoadingPromise`) with the other Stripe blocks, and a block
+that finds a load in progress, or `Stripe` already defined, uses it. So the first block to start loading Stripe.js
+decides the release for the page. This block starts loading `dahlia` as soon as the checkout imports it, before any
+payment method renders. The `express-checkout` block on the same checkout then finds that load and runs on `dahlia`
+instead of loading `https://js.stripe.com/v3/`.
+
+The page still gets `v3` when it loads Stripe.js before the checkout imports this block, for example with a `<script>`
+tag for `https://js.stripe.com/v3/` or an `express-checkout` block decorated earlier on the page. This block then logs
+Stripe's error to the browser console and shows shoppers "Unable to load payment form". Use either this block or the
+`stripe-payment` block on a page, not both.
+
+Not verified: whether two Stripe.js releases can run side by side on one page (Stripe's documentation does not say), and
+whether the `express-checkout` block works on `dahlia`. It calls only `registerAppInfo`, `elements`, `submit`,
+`createConfirmationToken` and `confirmPayment`, none of which the Dahlia changelog removes, and it awaits
+`elements.update()`, which returns a Promise on Dahlia (a breaking change in the Dahlia changelog; only its title was
+read). Test Express Checkout on the checkout page with this block before using both.
+
+## Styling
+
+Customize the appearance by modifying `blocks/stripe-payment-ewcs/stripe-payment-ewcs.css`.

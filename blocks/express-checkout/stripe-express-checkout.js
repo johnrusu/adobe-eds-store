@@ -543,6 +543,26 @@ function registerExpressCheckoutHandlers(wallet) {
 }
 
 /**
+ * Create the Stripe instance from the init-params options. Newer Stripe.js releases, such as the
+ * `dahlia` one the stripe-payment-ewcs block loads, refuse an `apiVersion` here and throw a
+ * VersionError; the release then uses its own API version, so the instance is created without it.
+ * @param {string} publishableKey Stripe publishable key.
+ * @param {Object} [options] Stripe.js options from init-params.
+ * @returns {Object} Stripe instance.
+ */
+function createStripe(publishableKey, options) {
+  try {
+    return Stripe(publishableKey, options);
+  } catch (error) {
+    if (!options?.apiVersion || !/apiVersion/i.test(error?.message || '')) {
+      throw error;
+    }
+    const { apiVersion, ...releaseOptions } = options;
+    return Stripe(publishableKey, releaseOptions);
+  }
+}
+
+/**
  * Initialize Stripe and mount eligible wallets in their descriptor order.
  * @returns {Promise<void>}
  */
@@ -575,7 +595,7 @@ async function mountExpressCheckout() {
       fetchInitParams(state.runtimeConfig.getInitParamsUrl),
       loadOrderSummarySettings(),
     ]);
-    state.stripe = Stripe(state.initParams.publishableKey, state.initParams.options);
+    state.stripe = createStripe(state.initParams.publishableKey, state.initParams.options);
     if (state.initParams.appInfo) {
       state.stripe.registerAppInfo(state.initParams.appInfo);
     }
