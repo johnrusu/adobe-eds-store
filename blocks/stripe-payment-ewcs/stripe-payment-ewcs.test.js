@@ -360,6 +360,22 @@ function shippingMethodPayload(amount = 5) {
   };
 }
 
+function shippingAddressPayload(overrides = {}) {
+  return {
+    firstName: "Ada",
+    lastName: "Lovelace",
+    telephone: "020 7946 0000",
+    street: ["1 Algorithm Way", ""],
+    city: "London",
+    region: { code: "" },
+    country: { code: "GB" },
+    postcode: "SW1A 1AA",
+    selectedShippingMethod: shippingMethodPayload(),
+    ...overrides,
+  };
+}
+
+// The Checkout drop-in reports the shipping address as the first of its shipping addresses.
 function checkoutPayload(overrides = {}) {
   return {
     email: "customer@example.com",
@@ -385,17 +401,7 @@ function checkoutPayload(overrides = {}) {
       country: { code: "GB" },
       postcode: "SW1A 1AA",
     },
-    shippingAddress: {
-      firstName: "Ada",
-      lastName: "Lovelace",
-      telephone: "020 7946 0000",
-      street: ["1 Algorithm Way", ""],
-      city: "London",
-      region: { code: "" },
-      country: { code: "GB" },
-      postcode: "SW1A 1AA",
-      selectedShippingMethod: shippingMethodPayload(),
-    },
+    shippingAddresses: [shippingAddressPayload()],
     ...overrides,
   };
 }
@@ -630,7 +636,7 @@ describe("stripe-payment-ewcs EDS block", () => {
         checkout: checkoutPayload({
           email: "",
           billingAddress: emptyAddress,
-          shippingAddress: emptyAddress,
+          shippingAddresses: [emptyAddress],
         }),
       });
       await block.runSessionSyncTimer();
@@ -646,7 +652,7 @@ describe("stripe-payment-ewcs EDS block", () => {
         "checkout/updated",
         checkoutPayload({
           billingAddress: emptyAddress,
-          shippingAddress: emptyAddress,
+          shippingAddresses: [emptyAddress],
         }),
       );
       await block.runSessionSyncTimer();
@@ -668,10 +674,12 @@ describe("stripe-payment-ewcs EDS block", () => {
         checkout: checkoutPayload({
           email: "",
           billingAddress: emptyAddress,
-          shippingAddress: {
-            ...emptyAddress,
-            selectedShippingMethod: shippingMethodPayload(),
-          },
+          shippingAddresses: [
+            {
+              ...emptyAddress,
+              selectedShippingMethod: shippingMethodPayload(),
+            },
+          ],
         }),
       });
 
@@ -682,13 +690,12 @@ describe("stripe-payment-ewcs EDS block", () => {
     test("waits for the shipping address and method, also for a logged-in customer", async () => {
       const block = loadStripePaymentBlock();
       block.document.cookie = "auth_dropin_user_token=customer%20token";
-      const noMethod = {
-        ...checkoutPayload().shippingAddress,
+      const noMethod = shippingAddressPayload({
         selectedShippingMethod: undefined,
-      };
+      });
 
       await renderAndMount(block, {
-        checkout: checkoutPayload({ shippingAddress: noMethod }),
+        checkout: checkoutPayload({ shippingAddresses: [noMethod] }),
       });
       await block.runSessionSyncTimer();
 
@@ -708,13 +715,8 @@ describe("stripe-payment-ewcs EDS block", () => {
 
     test("reads the shipping address from the shipping addresses list of the checkout", async () => {
       const block = loadStripePaymentBlock();
-      // The Checkout drop-in reports the address in this list, not as a single address.
-      const listed = checkoutPayload({
-        shippingAddress: undefined,
-        shippingAddresses: [checkoutPayload().shippingAddress],
-      });
 
-      await renderAndMount(block, { checkout: listed });
+      await renderAndMount(block);
 
       expect(block.checkoutSessionCalls()).toHaveLength(1);
       expect(block.paymentElements).toHaveLength(1);
@@ -728,11 +730,32 @@ describe("stripe-payment-ewcs EDS block", () => {
       });
     });
 
+    test("also reads a single shipping address of the checkout", async () => {
+      const block = loadStripePaymentBlock();
+      // The Express Checkout block accepts this shape too; the checkout models can carry either.
+      const single = checkoutPayload({
+        shippingAddresses: undefined,
+        shippingAddress: shippingAddressPayload(),
+      });
+
+      await renderAndMount(block, { checkout: single });
+
+      expect(block.checkoutSessionCalls()).toHaveLength(1);
+      expect(block.paymentElements).toHaveLength(1);
+
+      block.emitPaymentComplete();
+      await block.exports.handleStripePayment("cart_123");
+      expect(block.confirm.mock.calls[0][0].shippingAddress).toEqual({
+        name: "Ada Lovelace",
+        address: expect.objectContaining({ line1: "1 Algorithm Way", country: "GB" }),
+      });
+    });
+
     test("does not wait for a shipping method on a virtual cart", async () => {
       const block = loadStripePaymentBlock();
 
       await renderAndMount(block, {
-        checkout: checkoutPayload({ isVirtual: true, shippingAddress: undefined }),
+        checkout: checkoutPayload({ isVirtual: true, shippingAddresses: [] }),
       });
 
       expect(block.checkoutSessionCalls()).toHaveLength(1);
@@ -761,10 +784,11 @@ describe("stripe-payment-ewcs EDS block", () => {
       await block.events.emit(
         "checkout/updated",
         checkoutPayload({
-          shippingAddress: {
-            ...checkoutPayload().shippingAddress,
-            selectedShippingMethod: shippingMethodPayload(9),
-          },
+          shippingAddresses: [
+            shippingAddressPayload({
+              selectedShippingMethod: shippingMethodPayload(9),
+            }),
+          ],
         }),
       );
       await block.runSessionSyncTimer();
@@ -933,11 +957,12 @@ describe("stripe-payment-ewcs EDS block", () => {
       await block.events.emit(
         "checkout/updated",
         checkoutPayload({
-          shippingAddress: {
-            ...checkoutPayload().shippingAddress,
-            country: { code: "NL" },
-            postcode: "1012 AB",
-          },
+          shippingAddresses: [
+            shippingAddressPayload({
+              country: { code: "NL" },
+              postcode: "1012 AB",
+            }),
+          ],
         }),
       );
 

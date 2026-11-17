@@ -39,6 +39,7 @@ strings; each block keeps only its own values in a `constants.js` next to it.
 | `loadStripeJs(url)` | Loads Stripe.js from the given release URL. See [Stripe.js release](#stripejs-release). |
 | `fetchStripeResource(resource, options)` | `fetch` that aborts after the timeout. |
 | `postStripeAction(endpoint, body)` | POSTs to an App Builder action with the customer token and store view. |
+| `getStripeActionHeaders()`, `getSelectedStoreView()` | The headers of a request to an App Builder action (JSON, customer token, store view), and the selected store view. `express-checkout` sends its own request with them, because it reads the response differently. |
 | `getStripeRuntimeConfig(method, requiredUrls)` | Reads the action URLs from the payment method configuration. |
 | `isStripePaymentMethod(method)`, `isStripePaymentMethodAvailable(checkoutData)` | Tell whether a payment method, or the checkout, offers Stripe. |
 | `getActiveCartId(preferredCartId, cartData)` | The cart ID from the arguments, the cart events or session storage. |

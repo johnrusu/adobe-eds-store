@@ -5,19 +5,12 @@ import {
   STRIPE_PAYMENT_METHOD_CODE,
   STRIPE_PAYMENT_METHOD_TITLE,
 } from './constants.js';
-import {
-  BEARER_PREFIX,
-  DEFAULT_STORE_VIEW,
-  HTTP_HEADERS,
-  HTTP_METHOD_POST,
-  JSON_CONTENT_TYPE,
-  RUNTIME_URL_KEYS,
-  STORE_VIEW_STORAGE_KEY,
-} from '../stripe-shared/constants.js';
+import { HTTP_METHOD_POST, RUNTIME_URL_KEYS } from '../stripe-shared/constants.js';
 import {
   fetchStripeResource,
   getActiveCartId,
-  getCustomerTokenFromCookie,
+  getSelectedStoreView,
+  getStripeActionHeaders,
   getStripeRuntimeConfig,
   setStripePaymentMethod,
 } from '../stripe-shared/stripe-helpers.js';
@@ -78,33 +71,16 @@ async function fetchInitParams(endpoint) {
 }
 
 /**
- * Build the store and optional customer-authentication headers.
- * @returns {Object}
- */
-function getPaymentIntentHeaders() {
-  const headers = {
-    [HTTP_HEADERS.CONTENT_TYPE]: JSON_CONTENT_TYPE,
-  };
-  const customerToken = getCustomerTokenFromCookie();
-  if (customerToken) {
-    headers[HTTP_HEADERS.AUTHORIZATION] = `${BEARER_PREFIX}${customerToken}`;
-  }
-  headers[HTTP_HEADERS.STORE] = window.localStorage.getItem(STORE_VIEW_STORAGE_KEY)
-    || DEFAULT_STORE_VIEW;
-  return headers;
-}
-
-/**
  * Send cart context and the Confirmation Token ID to the configured action.
  * @param {string} confirmationTokenId Stripe Confirmation Token ID.
  * @returns {Promise<Object>}
  */
 async function createPaymentIntent(confirmationTokenId) {
   const cartId = getCurrentCartId();
-  const selectedStore = window.localStorage.getItem(STORE_VIEW_STORAGE_KEY) || DEFAULT_STORE_VIEW;
+  const selectedStore = getSelectedStoreView();
   const response = await fetchStripeResource(state.runtimeConfig.createPaymentIntentUrl, {
     method: HTTP_METHOD_POST,
-    headers: getPaymentIntentHeaders(),
+    headers: getStripeActionHeaders(),
     body: JSON.stringify({
       cartId,
       cartFullName: getCommerceCustomerName(),

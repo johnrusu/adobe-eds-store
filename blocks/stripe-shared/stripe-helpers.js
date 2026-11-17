@@ -293,6 +293,30 @@ export function getStripeRuntimeConfig(stripePaymentMethod, requiredUrls) {
 }
 
 /**
+ * Read the store view the storefront selected.
+ * @returns {string} The store view code, the default one when none is selected.
+ */
+export function getSelectedStoreView() {
+  return window.localStorage.getItem(STORE_VIEW_STORAGE_KEY) || DEFAULT_STORE_VIEW;
+}
+
+/**
+ * Build the headers of a request to an App Builder action: JSON content, the token of a
+ * logged-in customer and the store view.
+ * @returns {Object} The headers.
+ */
+export function getStripeActionHeaders() {
+  const headers = { [HTTP_HEADERS.CONTENT_TYPE]: JSON_CONTENT_TYPE };
+  const customerToken = getCustomerTokenFromCookie();
+  if (customerToken) {
+    headers[HTTP_HEADERS.AUTHORIZATION] = `${BEARER_PREFIX}${customerToken}`;
+  }
+
+  headers[HTTP_HEADERS.STORE] = getSelectedStoreView();
+  return headers;
+}
+
+/**
  * POST to an App Builder action with the customer token and the store view. A failed
  * request throws the action's error message, with its error code as `code`.
  * @param {string} endpoint URL of the action.
@@ -300,18 +324,9 @@ export function getStripeRuntimeConfig(stripePaymentMethod, requiredUrls) {
  * @returns {Promise<Object>} The action's response data.
  */
 export async function postStripeAction(endpoint, body) {
-  const headers = { [HTTP_HEADERS.CONTENT_TYPE]: JSON_CONTENT_TYPE };
-  const customerToken = getCustomerTokenFromCookie();
-  if (customerToken) {
-    headers[HTTP_HEADERS.AUTHORIZATION] = `${BEARER_PREFIX}${customerToken}`;
-  }
-
-  const selectedStore = window.localStorage.getItem(STORE_VIEW_STORAGE_KEY) || DEFAULT_STORE_VIEW;
-  headers[HTTP_HEADERS.STORE] = selectedStore;
-
   const response = await fetchStripeResource(endpoint, {
     method: HTTP_METHOD_POST,
-    headers,
+    headers: getStripeActionHeaders(),
     body: JSON.stringify(body),
   });
   const data = await response.json();
