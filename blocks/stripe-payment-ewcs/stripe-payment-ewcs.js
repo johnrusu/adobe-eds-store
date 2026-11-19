@@ -345,6 +345,20 @@ function showCartIncompleteNotice(message) {
 }
 
 /**
+ * Show the loading state while the first session is requested: the cart-incomplete notice
+ * goes away, so the shopper sees that the payment form is on its way.
+ */
+function showPaymentFormLoading() {
+  const container = document.querySelector(`#${ELEMENTS_CONTAINER_ID}`);
+  if (!container) {
+    return;
+  }
+
+  container.querySelector(`.${CART_INCOMPLETE_NOTICE_CLASS}`)?.remove();
+  container.classList.add(LOADING_CLASS);
+}
+
+/**
  * Tell whether the first session can be requested. The amount of a session is fixed, so a cart
  * that ships waits for its shipping address and method: asking earlier creates a session for a
  * total that is about to change, and replacing it wipes the card details the shopper entered.
@@ -415,6 +429,9 @@ async function syncPaymentForm() {
         // No request yet. The form mounts on a later checkout update.
         showCartIncompleteNotice();
       } else if (!paymentElement || signature !== sessionSignature) {
+        if (!paymentElement) {
+          showPaymentFormLoading();
+        }
         await loadStripeJs(STRIPE_JS_URL);
         const sessionData = await requestCheckoutSession();
 

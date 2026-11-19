@@ -665,6 +665,45 @@ describe("stripe-payment-ewcs EDS block", () => {
       expect(block.paymentElements).toHaveLength(1);
     });
 
+    test("shows the loading state instead of the notice while the first session is requested", async () => {
+      let releaseSession;
+      const block = loadStripePaymentBlock({
+        onCheckoutSession: () =>
+          new Promise((resolve) => {
+            releaseSession = () => resolve(checkoutSessionResponse());
+          }),
+      });
+      const emptyAddress = { firstName: "", lastName: "" };
+      const container = () =>
+        block.document.querySelector("#stripe-elements-container");
+
+      await renderAndMount(block, {
+        checkout: checkoutPayload({
+          billingAddress: emptyAddress,
+          shippingAddresses: [emptyAddress],
+        }),
+      });
+      await block.runSessionSyncTimer();
+      expect(block.cartIncompleteText()).toBe(
+        "The payment form loads once the checkout details above are complete.",
+      );
+      expect(container().className).not.toContain("stripe-elements-loading");
+
+      await block.events.emit("checkout/updated", checkoutPayload());
+      await block.runSessionSyncTimer();
+
+      // The request is in flight: the notice made way for the loading state.
+      expect(block.checkoutSessionCalls()).toHaveLength(1);
+      expect(block.cartIncompleteText()).toBeNull();
+      expect(container().className).toContain("stripe-elements-loading");
+
+      releaseSession();
+      await flushPromises();
+
+      expect(block.paymentElements).toHaveLength(1);
+      expect(container().className).not.toContain("stripe-elements-loading");
+    });
+
     test("does not wait for contact details when the customer is logged in", async () => {
       const block = loadStripePaymentBlock();
       block.document.cookie = "auth_dropin_user_token=customer%20token";
