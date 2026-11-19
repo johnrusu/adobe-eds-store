@@ -198,6 +198,8 @@ as the `Store` header to the App Builder `checkout-session` action.
    shopper leaves the page on confirmation. Stripe returns them to the `checkout-session-return` action, and the
    app places the order from the Stripe webhook, as with the `stripe-payment` block.
 
+**Adaptive Pricing.** The block has no setting of its own. It passes `adaptivePricing: { allowed }` to `initCheckoutElementsSdk` with the `adaptive_pricing` field of the `checkout-session` response, which is `true` only when the App Management setting Adaptive Pricing is Enabled, Capture mode is Automatic, and the cart currency, the store base currency and the Stripe account currency are the same. When it is allowed and the session lists `currencyOptions`, the block mounts the Currency Selector Element in `#stripe-currency-selector`, above the Payment Element, on the first load or on a later change of the session. The session total follows the shopper's currency choice. The selector is destroyed with the Payment Element when the session is replaced. The Commerce order stays in the cart currency, and so does the rest of the storefront.
+
 The capture mode and the saved payment method setting are part of the Checkout Session, so the block has no
 `init-params` call and no capture option of its own.
 

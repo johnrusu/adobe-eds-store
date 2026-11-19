@@ -23,6 +23,12 @@ export const SESSION_TOTAL_LABEL_CLASS = 'stripe-checkout-total-label';
 export const SESSION_TOTAL_AMOUNT_CLASS = 'stripe-checkout-total-amount';
 export const SESSION_TOTAL_LABEL = 'Amount due';
 
+// Container of the Currency Selector Element, above the Payment Element. The block creates
+// it, so the shared payment form markup stays the same for both Stripe blocks.
+export const CURRENCY_SELECTOR_CONTAINER_ID = 'stripe-currency-selector';
+// Event of the Checkout SDK instance that reports a change of the session
+export const CHECKOUT_SESSION_CHANGE_EVENT = 'change';
+
 // Notice shown while the cart lacks what the session needs
 export const CART_INCOMPLETE_NOTICE_CLASS = 'stripe-cart-incomplete';
 export const CART_INCOMPLETE_HINT = 'The payment form loads once the checkout details above are complete.';

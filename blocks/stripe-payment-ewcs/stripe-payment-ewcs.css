@@ -90,3 +90,7 @@
     transform: translateY(0);
   }
 }
+
+#stripe-payment-form #stripe-currency-selector {
+  margin-bottom: 12px;
+}

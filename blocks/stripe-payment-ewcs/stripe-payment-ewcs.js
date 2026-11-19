@@ -48,6 +48,8 @@ import {
   CART_INCOMPLETE_NOTICE_CLASS,
   CHECKOUT_RESULT_SUCCESS,
   CHECKOUT_SESSION_ACTION,
+  CHECKOUT_SESSION_CHANGE_EVENT,
+  CURRENCY_SELECTOR_CONTAINER_ID,
   EWCS_MESSAGES,
   SESSION_SYNC_DELAY,
   SESSION_TOTAL_AMOUNT_CLASS,
@@ -77,6 +79,8 @@ let stripe = null;
 let stripePublishableKey = null;
 let checkoutActions = null;
 let paymentElement = null;
+// Currency Selector Element of the mounted session, when Adaptive Pricing offers other currencies
+let currencySelectorElement = null;
 let paymentFormComplete = false;
 // Checkout Session the mounted Payment Element belongs to: { id, clientSecret, emailRequired }
 let checkoutSession = null;
@@ -175,10 +179,45 @@ async function requestCheckoutSession() {
 }
 
 /**
+ * Destroy the Currency Selector Element and remove its container.
+ */
+function destroyCurrencySelector() {
+  destroyStripeElement(currencySelectorElement);
+  currencySelectorElement = null;
+  document.querySelector(`#${CURRENCY_SELECTOR_CONTAINER_ID}`)?.remove();
+}
+
+/**
+ * Mount the Currency Selector Element above the Payment Element once Stripe offers other
+ * currencies. The session lists them in currencyOptions, which can be empty until a later
+ * change of the session (for example when the shopper's location is known).
+ * @param {Object} checkout Checkout SDK instance of the session.
+ * @param {Object} actions Checkout actions of the loaded Checkout Session.
+ */
+function mountCurrencySelectorWhenOffered(checkout, actions) {
+  if (currencySelectorElement || !actions.getSession()?.currencyOptions?.length) {
+    return;
+  }
+
+  const paymentForm = document.querySelector(`#${PAYMENT_FORM_ID}`);
+  const elementsContainer = document.querySelector(`#${ELEMENTS_CONTAINER_ID}`);
+  if (!paymentForm || !elementsContainer) {
+    return;
+  }
+
+  const container = document.createElement('div');
+  container.id = CURRENCY_SELECTOR_CONTAINER_ID;
+  paymentForm.insertBefore(container, elementsContainer);
+  currencySelectorElement = checkout.createCurrencySelectorElement();
+  currencySelectorElement.mount(`#${CURRENCY_SELECTOR_CONTAINER_ID}`);
+}
+
+/**
  * Destroy the mounted Payment Element and forget its session.
  */
 function destroyPaymentElement() {
   destroyStripeElement(paymentElement);
+  destroyCurrencySelector();
 
   paymentElement = null;
   checkoutActions = null;
@@ -274,10 +313,13 @@ async function mountCheckoutSession(sessionData) {
     throw new Error(EWCS_MESSAGES.CHECKOUT_SESSIONS_UNSUPPORTED(STRIPE_JS_URL));
   }
 
+  const adaptivePricingAllowed = sessionData.adaptive_pricing === true;
   const checkout = stripe.initCheckoutElementsSdk({
     clientSecret: sessionData.client_secret,
-    // The Commerce order is placed in the cart currency.
-    adaptivePricing: { allowed: false },
+    // Only the checkout-session action decides: it enables Adaptive Pricing for a cart whose
+    // currency is the store base currency and the Stripe account currency. The Commerce order
+    // is placed in that currency, the shopper may pay in another one.
+    adaptivePricing: { allowed: adaptivePricingAllowed },
     elementsOptions: {
       // Since Clover both default to 'auto'. The stripe-payment block neither
       // shows saved payment methods nor asks for consent to save one: the
@@ -314,8 +356,21 @@ async function mountCheckoutSession(sessionData) {
   });
 
   paymentElement = element;
-  checkoutActions = loadActionsResult.actions;
+  const loadedActions = loadActionsResult.actions;
+  checkoutActions = loadedActions;
   showSessionTotal(checkoutActions);
+  if (adaptivePricingAllowed) {
+    mountCurrencySelectorWhenOffered(checkout, checkoutActions);
+    // The shopper's currency choice changes the session total, so the total follows it.
+    checkout.on(CHECKOUT_SESSION_CHANGE_EVENT, () => {
+      // A replaced session no longer owns the form.
+      if (checkoutActions !== loadedActions) {
+        return;
+      }
+      mountCurrencySelectorWhenOffered(checkout, checkoutActions);
+      showSessionTotal(checkoutActions);
+    });
+  }
   checkoutSession = {
     id: sessionData.id,
     clientSecret: sessionData.client_secret,

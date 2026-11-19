@@ -59,6 +59,12 @@ function createElement(tagName) {
       element.children.push(child);
       return child;
     }),
+    insertBefore: jest.fn((child, reference) => {
+      child.parentElement = element;
+      const index = element.children.indexOf(reference);
+      element.children.splice(index < 0 ? element.children.length : index, 0, child);
+      return child;
+    }),
     remove: jest.fn(() => {
       if (!element.parentElement) {
         return;
@@ -219,6 +225,7 @@ function loadStripePaymentBlock({
   // One Payment Element, actions object and Checkout SDK instance per mounted session.
   const paymentElements = [];
   const checkouts = [];
+  const currencySelectors = [];
   const confirm = jest
     .fn()
     .mockResolvedValue({ type: "success", session: { id: "cs_test_1" } });
@@ -242,6 +249,15 @@ function loadStripePaymentBlock({
       }
 
       const checkout = {
+        handlers: {},
+        on: jest.fn((eventName, handler) => {
+          checkout.handlers[eventName] = handler;
+        }),
+        createCurrencySelectorElement: jest.fn(() => {
+          const selector = { mount: jest.fn(), destroy: jest.fn() };
+          currencySelectors.push(selector);
+          return selector;
+        }),
         loadActions: jest.fn(async () => loadActionsResult()),
         createPaymentElement: jest.fn(() => {
           const paymentElement = createPaymentElement();
@@ -319,6 +335,7 @@ function loadStripePaymentBlock({
     fetch,
     timers,
     checkouts,
+    currencySelectors,
     paymentElements,
     confirm,
     getSession,
@@ -927,6 +944,129 @@ describe("stripe-payment-ewcs EDS block", () => {
       });
 
       expect(block.fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("adaptive pricing", () => {
+    const CURRENCY_OPTIONS = [
+      { currency: "eur", amount: "EUR 38.00" },
+      { currency: "usd", amount: "$42.00" },
+    ];
+    const sessionWith = (currencyOptions) => ({
+      total: { total: { amount: "$42.00", minorUnitsAmount: 4200 } },
+      currencyOptions,
+    });
+    const selectorContainer = (block) =>
+      block.document.querySelector("#stripe-currency-selector");
+
+    test("keeps Adaptive Pricing off and mounts no selector unless the session allows it", async () => {
+      const block = loadStripePaymentBlock();
+      block.getSession.mockImplementation(() => sessionWith(CURRENCY_OPTIONS));
+
+      await renderAndMount(block);
+
+      expect(
+        block.stripeInstance.initCheckoutElementsSdk.mock.calls[0][0]
+          .adaptivePricing,
+      ).toEqual({ allowed: false });
+      expect(block.checkouts[0].on).not.toHaveBeenCalled();
+      expect(block.checkouts[0].createCurrencySelectorElement).not.toHaveBeenCalled();
+      expect(selectorContainer(block)).toBeNull();
+    });
+
+    test("allows Adaptive Pricing when the checkout-session action enabled it, and mounts the selector above the Payment Element", async () => {
+      const block = loadStripePaymentBlock({
+        onCheckoutSession: () =>
+          checkoutSessionResponse(
+            checkoutSessionPayload({ adaptive_pricing: true }),
+          ),
+      });
+      block.getSession.mockImplementation(() => sessionWith(CURRENCY_OPTIONS));
+
+      await renderAndMount(block);
+
+      expect(
+        block.stripeInstance.initCheckoutElementsSdk.mock.calls[0][0]
+          .adaptivePricing,
+      ).toEqual({ allowed: true });
+      expect(block.currencySelectors).toHaveLength(1);
+      expect(block.currencySelectors[0].mount).toHaveBeenCalledWith(
+        "#stripe-currency-selector",
+      );
+      const form = block.document.querySelector("#stripe-payment-form");
+      const ids = form.children.map((child) => child.id);
+      expect(ids.indexOf("stripe-currency-selector")).toBeGreaterThanOrEqual(0);
+      expect(ids.indexOf("stripe-currency-selector")).toBeLessThan(
+        ids.indexOf("stripe-elements-container"),
+      );
+    });
+
+    test("mounts no selector while Stripe offers no other currency, and mounts it once on a later change", async () => {
+      const block = loadStripePaymentBlock({
+        onCheckoutSession: () =>
+          checkoutSessionResponse(
+            checkoutSessionPayload({ adaptive_pricing: true }),
+          ),
+      });
+      block.getSession.mockImplementation(() => sessionWith(null));
+      await renderAndMount(block);
+
+      expect(block.currencySelectors).toHaveLength(0);
+      expect(block.checkouts[0].on).toHaveBeenCalledWith(
+        "change",
+        expect.any(Function),
+      );
+
+      block.getSession.mockImplementation(() => sessionWith(CURRENCY_OPTIONS));
+      block.checkouts[0].handlers.change();
+      block.checkouts[0].handlers.change();
+
+      expect(block.currencySelectors).toHaveLength(1);
+    });
+
+    test("shows the session total again when the session changes", async () => {
+      const block = loadStripePaymentBlock({
+        onCheckoutSession: () =>
+          checkoutSessionResponse(
+            checkoutSessionPayload({ adaptive_pricing: true }),
+          ),
+      });
+      await renderAndMount(block);
+
+      block.getSession.mockImplementation(() => ({
+        total: { total: { amount: "EUR 38.00" } },
+        currencyOptions: CURRENCY_OPTIONS,
+      }));
+      block.checkouts[0].handlers.change();
+
+      expect(
+        block.document.querySelector(".stripe-checkout-total-amount")
+          .textContent,
+      ).toBe("EUR 38.00");
+    });
+
+    test("destroys the selector with the Payment Element when the session is replaced, and ignores the replaced session", async () => {
+      let payload = checkoutSessionPayload({ adaptive_pricing: true });
+      const block = loadStripePaymentBlock({
+        onCheckoutSession: () => checkoutSessionResponse(payload),
+      });
+      block.getSession.mockImplementation(() => sessionWith(CURRENCY_OPTIONS));
+      await renderAndMount(block);
+
+      payload = checkoutSessionPayload({
+        id: "cs_test_2",
+        client_secret: "cs_test_2_secret_def",
+        adaptive_pricing: true,
+      });
+      await block.events.emit("cart/updated", cartPayload({ value: 47 }));
+      await block.runSessionSyncTimer();
+
+      expect(block.currencySelectors[0].destroy).toHaveBeenCalled();
+      expect(block.currencySelectors).toHaveLength(2);
+
+      // The first session no longer owns the form.
+      block.checkouts[0].handlers.change();
+      expect(block.currencySelectors).toHaveLength(2);
     });
   });
 
