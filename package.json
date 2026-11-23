@@ -16,6 +16,7 @@
     "start:aem": "node --require ./scripts/wsl-port-check-preload.cjs ./node_modules/@adobe/aem-cli/index.js up --no-open --forward-browser-logs --html-folder drafts --html-mount /",
     "start": "npm-run-all -p proxy:graphql start:aem",
     "install:dropins": "node build.mjs && node postinstall.js",
+    "commit": "git add . && git commit -m \"chore: update\" && git push origin main",
     "postinstall": "npm run install:dropins",
     "postupdate": "npm run install:dropins",
     "build:json": "npm-run-all -p build:json:models build:json:definitions build:json:filters",

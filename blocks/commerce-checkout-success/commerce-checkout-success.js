@@ -38,6 +38,7 @@ import {
 
 // Ensure order drop-in initializer side effects are applied
 import '../../scripts/initializers/order.js';
+import { ORDER_DROPIN_MODELS } from '../../scripts/order-item-prices.js';
 
 // Local modal helper
 import createModal from '../modal/modal.js';
@@ -250,7 +251,9 @@ async function renderCheckoutSuccessContent(container, { orderData } = {}) {
   await fetchPlaceholders('placeholders/cart.json');
   const labels = await fetchPlaceholders('placeholders/order.json');
   const langDefinitions = { default: { ...labels } };
-  const initOptions = orderData ? { langDefinitions, orderData } : { langDefinitions };
+  const initOptions = orderData
+    ? { langDefinitions, orderData, models: ORDER_DROPIN_MODELS }
+    : { langDefinitions, models: ORDER_DROPIN_MODELS };
   await initializers.mountImmediately(orderApi.initialize, initOptions);
 
   // Render all order confirmation containers using local renderers

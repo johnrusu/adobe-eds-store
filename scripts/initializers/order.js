@@ -19,6 +19,7 @@ import {
   SALES_ORDER_VIEW_PATH,
   rootLink,
 } from '../commerce.js';
+import { ORDER_DROPIN_MODELS } from '../order-item-prices.js';
 
 await initializeDropin(async () => {
   // Set Fetch GraphQL (Core)
@@ -71,6 +72,7 @@ await initializeDropin(async () => {
     langDefinitions,
     orderRef,
     returnRef,
+    models: ORDER_DROPIN_MODELS,
   });
 })();
 
@@ -118,6 +120,7 @@ async function handleUserOrdersRedirects(
       langDefinitions,
       orderRef,
       returnRef,
+      models: ORDER_DROPIN_MODELS,
     });
   }
 }
