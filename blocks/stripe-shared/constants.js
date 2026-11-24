@@ -57,6 +57,12 @@ export const RUNTIME_URL_KEYS = Object.freeze({
 export const CART_ID_STORAGE_KEY = 'DROPINS_CART_ID';
 export const STORE_VIEW_STORAGE_KEY = 'store-view';
 export const DEFAULT_STORE_VIEW = 'default';
+// Address form values that the storefront-account drop-in's AddressForm keeps in
+// sessionStorage as `${formName}_addressData`. It caches only these two form names.
+export const CHECKOUT_ADDRESS_STORAGE_KEYS = Object.freeze([
+  'selectedShippingAddress_addressData',
+  'selectedBillingAddress_addressData',
+]);
 // Cookie set by the storefront-auth drop-in
 export const AUTH_TOKEN_COOKIE_PATTERN = /(?:^|;\s*)auth_dropin_user_token=([^;]+)/;
 

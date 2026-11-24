@@ -550,6 +550,46 @@ describe("stripe-payment EDS block", () => {
     });
   });
 
+  test("clears the saved checkout addresses before confirming, since a redirect payment method leaves the page", async () => {
+    const block = loadStripePaymentBlock();
+    const storage = block.window.sessionStorage;
+    storage.setItem("selectedShippingAddress_addressData", "{\"data\":{}}");
+    storage.setItem("selectedBillingAddress_addressData", "{\"data\":{}}");
+    storage.setItem("DROPINS_CART_ID", "cart_123");
+
+    await renderAndMount(block);
+    block.emitPaymentComplete();
+    await expect(block.exports.handleStripePayment("cart_123")).resolves.toBe(
+      true,
+    );
+
+    expect(storage.getItem("selectedShippingAddress_addressData")).toBeNull();
+    expect(storage.getItem("selectedBillingAddress_addressData")).toBeNull();
+    expect(storage.getItem("DROPINS_CART_ID")).toBe("cart_123");
+    expect(storage.removeItem.mock.invocationCallOrder[0]).toBeLessThan(
+      block.stripeInstance.confirmPayment.mock.invocationCallOrder[0],
+    );
+  });
+
+  test("keeps the saved checkout addresses when Stripe rejects the form", async () => {
+    const block = loadStripePaymentBlock();
+    const storage = block.window.sessionStorage;
+    storage.setItem("selectedShippingAddress_addressData", "{\"data\":{}}");
+    block.elements.submit.mockResolvedValue({
+      error: { message: "Your card number is incomplete." },
+    });
+
+    await renderAndMount(block);
+    block.emitPaymentComplete();
+    await expect(block.exports.handleStripePayment("cart_123")).resolves.toBe(
+      false,
+    );
+
+    expect(storage.getItem("selectedShippingAddress_addressData")).toBe(
+      "{\"data\":{}}",
+    );
+  });
+
   test("blocks order placement until the Stripe Payment Element is complete", async () => {
     const block = loadStripePaymentBlock();
 

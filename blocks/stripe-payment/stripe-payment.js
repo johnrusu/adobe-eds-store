@@ -9,6 +9,7 @@ import { events } from '@dropins/tools/event-bus.js';
 import { loadCSS } from '../../scripts/aem.js';
 import {
   displayStripeError,
+  clearCheckoutAddressCache,
   clearElementsContainer,
   clearStripeError,
   createPaymentFormContent,
@@ -400,6 +401,9 @@ async function handleStripePayment(cartId) {
     displayStripeError(STRIPE_MESSAGES.PAYMENT_METHOD_NOT_SET);
     return false;
   }
+
+  // Redirect-based payment methods leave the page in confirmPayment.
+  clearCheckoutAddressCache();
 
   const { error, paymentIntent } = await stripe.confirmPayment({
     elements,

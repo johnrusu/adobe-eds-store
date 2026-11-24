@@ -1373,6 +1373,42 @@ describe("stripe-payment-ewcs EDS block", () => {
       expect(block.confirm).not.toHaveBeenCalled();
     });
 
+    test("clears the saved checkout addresses before confirming, since a redirect payment method leaves the page", async () => {
+      const block = loadStripePaymentBlock();
+      const storage = block.window.sessionStorage;
+      storage.setItem("selectedShippingAddress_addressData", "{\"data\":{}}");
+      storage.setItem("selectedBillingAddress_addressData", "{\"data\":{}}");
+      storage.setItem("DROPINS_CART_ID", "cart_123");
+      await mountCompleteForm(block);
+
+      await expect(block.exports.handleStripePayment("cart_123")).resolves.toBe(
+        true,
+      );
+
+      expect(storage.getItem("selectedShippingAddress_addressData")).toBeNull();
+      expect(storage.getItem("selectedBillingAddress_addressData")).toBeNull();
+      expect(storage.getItem("DROPINS_CART_ID")).toBe("cart_123");
+      expect(storage.removeItem.mock.invocationCallOrder[0]).toBeLessThan(
+        block.confirm.mock.invocationCallOrder[0],
+      );
+    });
+
+    test("keeps the saved checkout addresses when the payment method cannot be stored on the cart", async () => {
+      const block = loadStripePaymentBlock();
+      const storage = block.window.sessionStorage;
+      storage.setItem("selectedShippingAddress_addressData", "{\"data\":{}}");
+      block.mocks.checkoutApi.setPaymentMethod.mockResolvedValue(null);
+      await mountCompleteForm(block);
+
+      await expect(block.exports.handleStripePayment("cart_123")).resolves.toBe(
+        false,
+      );
+
+      expect(storage.getItem("selectedShippingAddress_addressData")).toBe(
+        "{\"data\":{}}",
+      );
+    });
+
     test.each([
       [
         "an error result",

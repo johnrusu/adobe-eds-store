@@ -23,6 +23,7 @@ There are no options to set. The helpers read the following from the page:
 | `store-view` in `localStorage` | The store view sent to App Builder as the `Store` header. Defaults to `default`. |
 | `backend_integration_url` of the `oope_stripe` payment method | The App Builder action URLs, as JSON. The block names the URLs it needs. |
 | `sessionStorage` `DROPINS_CART_ID` and the cart events | The active cart ID, when the block has none. |
+| `sessionStorage` `selectedShippingAddress_addressData`, `selectedBillingAddress_addressData` | Removed before Stripe confirms the payment. The storefront-account drop-in keeps the address form values there, and the storefront clears them only on `order/placed`, which a redirect payment method never fires. |
 
 ## Constants
 
@@ -44,6 +45,7 @@ strings; each block keeps only its own values in a `constants.js` next to it.
 | `isStripePaymentMethod(method)`, `isStripePaymentMethodAvailable(checkoutData)` | Tell whether a payment method, or the checkout, offers Stripe. |
 | `getActiveCartId(preferredCartId, cartData)` | The cart ID from the arguments, the cart events or session storage. |
 | `getCustomerTokenFromCookie()` | The logged-in customer's token, or `null`. |
+| `clearCheckoutAddressCache()` | Removes the address form values the storefront keeps in session storage, so the next checkout starts empty. Call it just before confirming the payment. |
 | `persistStripePaymentMethod(clientSecret)`, `resetPersistedStripePaymentMethod()` | Store the client secret on the Commerce cart payment, once per client secret, and forget it. |
 | `displayStripeError(message)`, `clearStripeError()` | Show and remove the red `.stripe-error` message inside the Payment Element container. The message goes away after 10 seconds. |
 | `getAddressFullName(address)`, `getStripeAddress(address)` | A checkout drop-in address as a full name, or in the shape Stripe.js expects. |

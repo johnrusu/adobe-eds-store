@@ -23,6 +23,7 @@ import {
   STRIPE_PAYMENT_METHOD_CODE,
 } from '../stripe-shared/constants.js';
 import {
+  clearCheckoutAddressCache,
   clearElementsContainer,
   clearStripeError,
   createPaymentFormContent,
@@ -653,6 +654,8 @@ async function confirmCheckoutSessionPayment() {
     displayStripeError(STRIPE_MESSAGES.PAYMENT_METHOD_NOT_SET);
     return false;
   }
+
+  clearCheckoutAddressCache();
 
   let result;
   try {

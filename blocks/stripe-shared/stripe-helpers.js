@@ -13,6 +13,7 @@ import {
   BEARER_PREFIX,
   CART_EVENTS,
   CART_ID_STORAGE_KEY,
+  CHECKOUT_ADDRESS_STORAGE_KEYS,
   CLIENT_SECRET_DATA_KEY,
   DEFAULT_STORE_VIEW,
   ELEMENTS_CONTAINER_ID,
@@ -207,6 +208,21 @@ export function displayStripeError(message, containerId = ELEMENTS_CONTAINER_ID)
   setTimeout(() => {
     clearStripeError(containerId);
   }, STRIPE_ERROR_DISPLAY_TIME);
+}
+
+/**
+ * Remove the address form values the storefront keeps for the current checkout.
+ * Call it before Stripe confirms the payment: a redirect-based payment method
+ * (Bancontact, PayPal, Revolut, …) leaves the page there, so the storefront's
+ * own clean-up on `order/placed` never runs and the next checkout would show
+ * the previous order's addresses.
+ */
+export function clearCheckoutAddressCache() {
+  try {
+    CHECKOUT_ADDRESS_STORAGE_KEYS.forEach((key) => window.sessionStorage.removeItem(key));
+  } catch (error) {
+    // Storage unavailable: the address form had nothing to keep.
+  }
 }
 
 /**
