@@ -4,9 +4,10 @@ An injectable EDS block by Stripe that provides encapsulated, reusable payment f
 rendering the payment form, processing payments and handling payment errors.
 
 This block uses Stripe's Elements with Checkout Sessions (EwCS) flow: the Payment Element is initialized from a
-Checkout Session created by the Stripe app for Adobe Commerce. It is the counterpart of the `stripe-payment` block,
-which uses PaymentIntents. Both blocks are built to give the same orders, statuses, capture modes and redirect payment
-methods; live testing of this block is in progress. Use one of the two blocks on a checkout page, not both.
+Checkout Session created by the Stripe app for Adobe Commerce. It is the Stripe payment block for new storefronts and
+replaces the `stripe-payment` block, which uses PaymentIntents and is deprecated in this app. Both blocks give the
+same orders, statuses, capture modes and redirect payment methods. Use one of the two blocks on a checkout page, not
+both.
 
 ## Requirements
 
@@ -157,6 +158,8 @@ CheckoutProvider.render(PlaceOrder, {
 
 ### Switching from the `stripe-payment` block
 
+The `stripe-payment` block is deprecated. Switch storefronts that still use it to this block.
+
 The exported functions are the same (`renderStripePaymentMethod`, `handleStripePayment`, `validateStripePayment`),
 and so are the GraphQL schema extension and the checkout integration above. To switch, copy this folder into the
 storefront and change the import path in `commerce-checkout.js`.
@@ -198,7 +201,9 @@ as the `Store` header to the App Builder `checkout-session` action.
    shopper leaves the page on confirmation. Stripe returns them to the `checkout-session-return` action, and the
    app places the order from the Stripe webhook, as with the `stripe-payment` block.
 
-**Adaptive Pricing.** The block has no setting of its own. It passes `adaptivePricing: { allowed }` to `initCheckoutElementsSdk` with the `adaptive_pricing` field of the `checkout-session` response, which is `true` only when the App Management setting Adaptive Pricing is Enabled, Capture mode is Automatic, and the cart currency, the store base currency and the Stripe account currency are the same. When it is allowed and the session lists `currencyOptions`, the block mounts the Currency Selector Element in `#stripe-currency-selector`, above the Payment Element, on the first load or on a later change of the session. The session total follows the shopper's currency choice. The selector is destroyed with the Payment Element when the session is replaced. The Commerce order stays in the cart currency, and so does the rest of the storefront.
+**Updating overlay.** A change of the cart total, email or shipping address replaces the session, and with it the Payment Element and whatever the shopper typed in it. While that happens, the block covers `#stripe-payment-form` with a gray overlay ("Updating your total…", a `role="status"` live region), sets `aria-busy` on the form and makes the rest of it `inert`, so the shopper cannot fill in a form that is about to go. The overlay shows as soon as the checkout or cart update arrives, and already on the shopper's click on another shipping method when the checkout passes `beginPaymentFormUpdate` as the `onSelectionChange` of its `ShippingMethods` container (see `commerce-checkout/containers.js`). It goes once the new Payment Element reports `ready`, at once when App Builder answers with the same session or the refresh fails, and after 20 seconds at the latest. `handleStripePayment` waits for it, so Place Order never confirms the session of a previous total.
+
+**Adaptive Pricing.** The block has no setting of its own. It passes `adaptivePricing: { allowed }` to `initCheckoutElementsSdk` with the `adaptive_pricing` field of the `checkout-session` response, which is `true` only when the App Management setting Adaptive Pricing is Enabled (the default, also when it was never saved), Capture mode is Automatic, and the cart currency, the store base currency and the Stripe account currency are the same. When it is allowed and the session lists `currencyOptions`, the block mounts the Currency Selector Element in `#stripe-currency-selector`, above the Payment Element, on the first load or on a later change of the session. The session total follows the shopper's currency choice. The selector is destroyed with the Payment Element when the session is replaced. The Commerce order stays in the cart currency, and so does the rest of the storefront.
 
 The capture mode and the saved payment method setting are part of the Checkout Session, so the block has no
 `init-params` call and no capture option of its own.
@@ -230,31 +235,27 @@ Requests to App Builder time out after 15 seconds.
 
 ### Stripe.js release
 
-Checkout Sessions in Elements mode need a named release of Stripe.js. The block loads `dahlia` from
-`https://js.stripe.com/dahlia/stripe.js`. It is the release of the Stripe API version the `checkout-session` action
-creates sessions with (`2026-06-24.dahlia`); Stripe recommends keeping the two on the same release.
-
-`https://js.stripe.com/v3/` is not enough. Compared on 2026-11-12, the `v3` and `dahlia` files are the same code with a
-different release name inside, and the release name decides the behavior. On `v3`, `stripe.initCheckoutElementsSdk`
-exists but throws `IntegrationError: You must upgrade to the Basil release or higher to use initCheckout`. On `dahlia`
-it works, and the old `stripe.initCheckout()` name throws "has been removed".
+The block loads Stripe.js `dahlia` from `https://js.stripe.com/dahlia/stripe.js`. It is the release of the Stripe API
+version the `checkout-session` action creates sessions with (`2026-06-24.dahlia`). A versioned Stripe.js release uses
+the API version of its release. The block starts the session with `stripe.initCheckoutElementsSdk()`, the Dahlia name
+of the former `stripe.initCheckout()`, which throws on `dahlia`.
 
 The block shares one Stripe.js loader (`window.__stripeJsLoadingPromise`) with the other Stripe blocks, and a block
 that finds a load in progress, or `Stripe` already defined, uses it. So the first block to start loading Stripe.js
 decides the release for the page. This block starts loading `dahlia` as soon as the checkout imports it, before any
-payment method renders. The `express-checkout` block on the same checkout then finds that load and runs on `dahlia`
-instead of loading `https://js.stripe.com/v3/`.
+payment method renders. The `express-checkout` block on the same checkout then finds that load and runs on `dahlia`.
 
 The page still gets `v3` when it loads Stripe.js before the checkout imports this block, for example with a `<script>`
 tag for `https://js.stripe.com/v3/` or an `express-checkout` block decorated earlier on the page. This block then logs
 Stripe's error to the browser console and shows shoppers "Unable to load payment form". Use either this block or the
 `stripe-payment` block on a page, not both.
 
-Not verified: whether two Stripe.js releases can run side by side on one page (Stripe's documentation does not say), and
-whether the `express-checkout` block works on `dahlia`. It calls only `registerAppInfo`, `elements`, `submit`,
-`createConfirmationToken` and `confirmPayment`, none of which the Dahlia changelog removes, and it awaits
-`elements.update()`, which returns a Promise on Dahlia (a breaking change in the Dahlia changelog; only its title was
-read). Test Express Checkout on the checkout page with this block before using both.
+The `express-checkout` block works on `dahlia` and is in use with this block on a live EDS storefront. `dahlia` uses
+the API version of its release and does not accept the `apiVersion` option that `init-params` returns, so
+`express-checkout` creates its Stripe instance without it. The block awaits `elements.update()`, which returns a
+Promise on `dahlia`.
+
+Not verified: whether two Stripe.js releases can run side by side on one page. Stripe's documentation does not say.
 
 ## Styling
 

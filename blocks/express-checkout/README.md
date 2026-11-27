@@ -24,7 +24,10 @@ order only after payment confirmation succeeds.
 9. Call the Order Drop-in `placeOrder()` function only after confirmation.
 
 No raw card or wallet credentials pass through this block or Adobe Commerce.
-Stripe.js remains loaded directly from `https://js.stripe.com/v3/`.
+Stripe.js is loaded directly from Stripe. On a checkout with the `stripe-payment-ewcs` block, the block runs on the
+`dahlia` release that block loads. `dahlia` uses the API version of its release and does not accept the `apiVersion`
+option that `init-params` returns, so the block creates its Stripe instance without it. Used without
+`stripe-payment-ewcs`, the block loads `https://js.stripe.com/v3/`.
 
 Wallet shipping and billing inputs explicitly set `saveInAddressBook: false`
 (`save_in_address_book: false` in GraphQL) before order placement. Commerce

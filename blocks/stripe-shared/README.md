@@ -1,7 +1,7 @@
 # Stripe EDS Shared Helpers
 
-Helpers shared by the Stripe blocks of an EDS storefront: `stripe-payment` (PaymentIntents), `stripe-payment-ewcs`
-(Elements with Checkout Sessions) and `express-checkout`. This folder is not a block. It has no `decorate` function and
+Helpers shared by the Stripe blocks of an EDS storefront: `stripe-payment-ewcs` (Elements with Checkout Sessions),
+`express-checkout` and the deprecated `stripe-payment` (PaymentIntents). This folder is not a block. It has no `decorate` function and
 renders nothing; the blocks import `stripe-helpers.js` from it.
 
 Copy the folder into the storefront's `blocks` directory next to the blocks that use it, for example
@@ -58,7 +58,7 @@ strings; each block keeps only its own values in a `constants.js` next to it.
 
 The Stripe blocks on a page share one loading promise (`window.__stripeJsLoadingPromise`). A block that finds a load
 in progress, or `Stripe` already defined, uses it. So the first block to start loading Stripe.js decides the release
-for the whole page: `v3` for `stripe-payment`, `dahlia` for `stripe-payment-ewcs`. This is why a page must import only
+for the whole page: `dahlia` for `stripe-payment-ewcs`, `v3` for the deprecated `stripe-payment`. This is why a page must import only
 one of those two blocks. The `express-checkout` block loads Stripe.js only when it mounts, and so runs on whichever
 release is already loading.
 

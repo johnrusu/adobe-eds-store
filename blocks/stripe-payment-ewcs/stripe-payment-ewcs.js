@@ -52,6 +52,7 @@ import {
   CHECKOUT_SESSION_CHANGE_EVENT,
   CURRENCY_SELECTOR_CONTAINER_ID,
   EWCS_MESSAGES,
+  PAYMENT_ELEMENT_READY_EVENT,
   SESSION_SYNC_DELAY,
   SESSION_TOTAL_AMOUNT_CLASS,
   SESSION_TOTAL_CLASS,
@@ -59,6 +60,10 @@ import {
   SESSION_TOTAL_LABEL_CLASS,
   STRIPE_JS_URL,
   STYLESHEET_URL,
+  UPDATING_CLASS,
+  UPDATING_MAX_DURATION,
+  UPDATING_MESSAGE,
+  UPDATING_OVERLAY_CLASS,
 } from './constants.js';
 
 /**
@@ -98,6 +103,117 @@ let sessionSyncDone = Promise.resolve();
 let sessionSyncQueued = false;
 let sessionSyncTimer = null;
 let renderGeneration = 0;
+// Set from mounting a Payment Element until it reports ready (or fails to load)
+let paymentElementLoading = false;
+// Set while the overlay covers the form, with the timer that removes it at the latest
+let paymentFormUpdating = false;
+let paymentFormUpdatingTimer = null;
+// Settles when the overlay goes: Place Order waits for it
+let paymentFormSettled = Promise.resolve();
+let resolvePaymentFormSettled = null;
+// Set from a shopper's change the checkout is still saving until the checkout reports it
+let awaitingCheckoutChange = false;
+
+/**
+ * Cover the payment form with the updating overlay, or remove it. The overlay is a live region
+ * with the message; the rest of the form becomes inert, which also keeps keyboard focus out of
+ * the Stripe iframes.
+ * @param {boolean} busy Whether the form is being updated.
+ */
+function setPaymentFormBusy(busy) {
+  const paymentForm = document.querySelector(`#${PAYMENT_FORM_ID}`);
+  if (!paymentForm) {
+    return;
+  }
+
+  let overlay = paymentForm.querySelector(`.${UPDATING_OVERLAY_CLASS}`);
+  if (!overlay && busy) {
+    overlay = document.createElement('div');
+    overlay.className = UPDATING_OVERLAY_CLASS;
+    overlay.setAttribute('role', 'status');
+    overlay.setAttribute('aria-live', 'polite');
+    paymentForm.appendChild(overlay);
+  }
+
+  Array.from(paymentForm.children).forEach((child) => {
+    if (child !== overlay) {
+      child.inert = busy;
+    }
+  });
+  if (busy) {
+    paymentForm.classList.add(UPDATING_CLASS);
+    paymentForm.setAttribute('aria-busy', 'true');
+  } else {
+    paymentForm.classList.remove(UPDATING_CLASS);
+    paymentForm.removeAttribute('aria-busy');
+  }
+  if (overlay) {
+    overlay.textContent = busy ? UPDATING_MESSAGE : '';
+  }
+}
+
+/**
+ * Remove the updating overlay.
+ */
+function hidePaymentFormUpdating() {
+  if (paymentFormUpdatingTimer) {
+    window.clearTimeout(paymentFormUpdatingTimer);
+  }
+  paymentFormUpdatingTimer = null;
+  awaitingCheckoutChange = false;
+  if (!paymentFormUpdating) {
+    return;
+  }
+
+  paymentFormUpdating = false;
+  setPaymentFormBusy(false);
+  resolvePaymentFormSettled?.();
+  resolvePaymentFormSettled = null;
+}
+
+/**
+ * Cover the mounted form with the updating overlay while a change of the cart may replace its
+ * session. Without a mounted form the loading state of the container already shows.
+ */
+function showPaymentFormUpdating() {
+  if (!paymentElement || paymentConfirming || paymentConfirmed) {
+    return;
+  }
+
+  if (paymentFormUpdatingTimer) {
+    window.clearTimeout(paymentFormUpdatingTimer);
+  }
+  paymentFormUpdatingTimer = window.setTimeout(() => {
+    paymentFormUpdatingTimer = null;
+    hidePaymentFormUpdating();
+  }, UPDATING_MAX_DURATION);
+
+  if (paymentFormUpdating) {
+    return;
+  }
+  paymentFormUpdating = true;
+  paymentFormSettled = new Promise((resolve) => {
+    resolvePaymentFormSettled = resolve;
+  });
+  setPaymentFormBusy(true);
+}
+
+/**
+ * Remove the updating overlay once nothing is left to wait for: the checkout reported the
+ * shopper's change, no session refresh is scheduled or in flight, and the mounted Payment
+ * Element has loaded.
+ */
+function settlePaymentFormUpdating() {
+  if (
+    awaitingCheckoutChange
+    || sessionSyncTimer
+    || sessionSyncInFlight
+    || paymentElementLoading
+  ) {
+    return;
+  }
+  hidePaymentFormUpdating();
+}
 
 /**
  * Resolve the checkout-session action URL from the trusted Commerce payment configuration.
@@ -208,6 +324,8 @@ function mountCurrencySelectorWhenOffered(checkout, actions) {
 
   const container = document.createElement('div');
   container.id = CURRENCY_SELECTOR_CONTAINER_ID;
+  // Mounted while the overlay covers the form: it stays out of reach as well.
+  container.inert = paymentFormUpdating;
   paymentForm.insertBefore(container, elementsContainer);
   currencySelectorElement = checkout.createCurrencySelectorElement();
   currencySelectorElement.mount(`#${CURRENCY_SELECTOR_CONTAINER_ID}`);
@@ -221,6 +339,7 @@ function destroyPaymentElement() {
   destroyCurrencySelector();
 
   paymentElement = null;
+  paymentElementLoading = false;
   checkoutActions = null;
   checkoutSession = null;
   paymentFormComplete = false;
@@ -239,6 +358,7 @@ function resetMountedPaymentElement() {
   sessionSignature = null;
   resetPersistedStripePaymentMethod();
   paymentConfirmed = false;
+  hidePaymentFormUpdating();
 }
 
 /**
@@ -351,12 +471,23 @@ async function mountCheckoutSession(sessionData) {
   element.on(PAYMENT_ELEMENT_EVENTS.CHANGE, (event) => {
     paymentFormComplete = event.complete;
   });
+  // The updating overlay stays until the new form can be filled in.
+  const finishLoading = () => {
+    if (paymentElement !== element) {
+      return;
+    }
+    paymentElementLoading = false;
+    settlePaymentFormUpdating();
+  };
+  element.on(PAYMENT_ELEMENT_READY_EVENT, finishLoading);
   element.on(PAYMENT_ELEMENT_EVENTS.LOAD_ERROR, (event) => {
     console.error(EWCS_MESSAGES.PAYMENT_ELEMENT_LOAD_FAILED_LOG, event?.error);
     displayStripeError(STRIPE_MESSAGES.PAYMENT_FORM_LOAD_FAILED);
+    finishLoading();
   });
 
   paymentElement = element;
+  paymentElementLoading = true;
   const loadedActions = loadActionsResult.actions;
   checkoutActions = loadedActions;
   showSessionTotal(checkoutActions);
@@ -530,6 +661,9 @@ async function syncPaymentForm() {
       sessionSyncQueued = false;
       syncPaymentForm();
     }
+    // The overlay goes now when the session stayed or the refresh failed, or once the new
+    // Payment Element is ready.
+    settlePaymentFormUpdating();
   }
 }
 
@@ -545,8 +679,14 @@ function schedulePaymentFormSync() {
   // for the checkout to settle, also while nothing is mounted yet, so a form
   // being filled in does not send a request for each field.
   if (paymentElement && getSessionSignature() === sessionSignature) {
+    // An overlay shown for a change that ended up not changing the session goes.
+    settlePaymentFormUpdating();
     return;
   }
+
+  // The mounted form is about to be replaced: cover it now, not once the request starts.
+  awaitingCheckoutChange = false;
+  showPaymentFormUpdating();
 
   if (sessionSyncTimer) {
     window.clearTimeout(sessionSyncTimer);
@@ -555,6 +695,31 @@ function schedulePaymentFormSync() {
     sessionSyncTimer = null;
     syncPaymentForm();
   }, SESSION_SYNC_DELAY);
+}
+
+/**
+ * Cover the payment form as soon as the shopper picks another shipping method, while the
+ * checkout is still saving it: the new shipping cost replaces the session once the checkout
+ * reports it. Called by the checkout's shipping methods container.
+ * @param {Object} [method] Shipping method the shopper picked.
+ */
+function beginPaymentFormUpdate(method) {
+  if (!paymentElement || !canSyncPaymentForm()) {
+    return;
+  }
+
+  const selectedMethod = readCheckoutShippingAddress(checkoutData)?.selectedShippingMethod;
+  if (
+    method
+    && selectedMethod
+    && method.code === selectedMethod.code
+    && method.carrier?.code === selectedMethod.carrier?.code
+  ) {
+    return;
+  }
+
+  awaitingCheckoutChange = true;
+  showPaymentFormUpdating();
 }
 
 /**
@@ -698,6 +863,11 @@ async function handleStripePayment(cartId) {
     return false;
   }
 
+  // A change of the cart is replacing the form: confirm only once the form of the new total is
+  // there, never the session of the previous one. The overlay goes at the latest after
+  // UPDATING_MAX_DURATION.
+  await paymentFormSettled;
+
   // Checkout updates during a 3D Secure challenge or a slow confirmation must
   // not replace the session being confirmed.
   paymentConfirming = true;
@@ -836,6 +1006,7 @@ export {
   renderStripePaymentMethod,
   handleStripePayment,
   validateStripePayment,
+  beginPaymentFormUpdate,
 };
 
 // Default export for block initialization (if used as a block)

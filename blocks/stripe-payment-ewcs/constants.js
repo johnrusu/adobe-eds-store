@@ -29,6 +29,17 @@ export const CURRENCY_SELECTOR_CONTAINER_ID = 'stripe-currency-selector';
 // Event of the Checkout SDK instance that reports a change of the session
 export const CHECKOUT_SESSION_CHANGE_EVENT = 'change';
 
+// Overlay shown over a mounted form while a change of the cart replaces its session: the form
+// is about to be replaced, so the shopper must not fill it in meanwhile.
+export const UPDATING_CLASS = 'stripe-payment-updating';
+export const UPDATING_OVERLAY_CLASS = 'stripe-payment-updating-overlay';
+export const UPDATING_MESSAGE = 'Updating your total…';
+// The overlay goes away after this long even if the update never reports back, so the form
+// cannot stay blocked. Longer than a session request (15 s) plus loading its actions.
+export const UPDATING_MAX_DURATION = 20000;
+// Event of the Payment Element once it can be filled in
+export const PAYMENT_ELEMENT_READY_EVENT = 'ready';
+
 // Notice shown while the cart lacks what the session needs
 export const CART_INCOMPLETE_NOTICE_CLASS = 'stripe-cart-incomplete';
 export const CART_INCOMPLETE_HINT = 'The payment form loads once the checkout details above are complete.';

@@ -40,6 +40,13 @@ function createElement(tagName) {
     textContent: "",
     innerHTML: "",
     parentElement: null,
+    attributes: {},
+    setAttribute: jest.fn((name, value) => {
+      element.attributes[name] = String(value);
+    }),
+    removeAttribute: jest.fn((name) => {
+      delete element.attributes[name];
+    }),
     scrollIntoView: jest.fn(),
     classList: {
       add: jest.fn((className) => {
@@ -144,8 +151,8 @@ function transformStripeBlockSource(source) {
       "const { loadCSS } = __mocks;",
     )
     .replace(
-      /export \{\s*renderStripePaymentMethod,\s*handleStripePayment,\s*validateStripePayment,\s*\};/,
-      "Object.assign(__exports, { renderStripePaymentMethod, handleStripePayment, validateStripePayment });",
+      /export \{\s*renderStripePaymentMethod,\s*handleStripePayment,\s*validateStripePayment,\s*beginPaymentFormUpdate,\s*\};/,
+      "Object.assign(__exports, { renderStripePaymentMethod, handleStripePayment, validateStripePayment, beginPaymentFormUpdate });",
     )
     .replace(
       "export default function decorate(block) {",
@@ -1181,6 +1188,229 @@ describe("stripe-payment-ewcs EDS block", () => {
     });
   });
 
+  describe("updating overlay", () => {
+    const paymentForm = (block) =>
+      block.document.querySelector("#stripe-payment-form");
+    const isUpdating = (block) =>
+      paymentForm(block).className.split(" ").includes("stripe-payment-updating");
+    const overlay = (block) =>
+      block.document.querySelector(".stripe-payment-updating-overlay");
+    const readyLatest = (block) =>
+      block.paymentElements[block.paymentElements.length - 1].handlers.ready();
+    const bestWay = {
+      carrier: { code: "tablerate" },
+      code: "bestway",
+      amount: { value: 15, currency: "USD" },
+    };
+    const checkoutWithBestWay = () =>
+      checkoutPayload({
+        shippingAddresses: [
+          shippingAddressPayload({ selectedShippingMethod: bestWay }),
+        ],
+      });
+
+    async function mountReadyForm(block) {
+      await renderAndMount(block);
+      readyLatest(block);
+    }
+
+    test("covers the form as soon as the cart total changes, until the new form is ready", async () => {
+      let payload = checkoutSessionPayload();
+      const block = loadStripePaymentBlock({
+        onCheckoutSession: () => checkoutSessionResponse(payload),
+      });
+      await mountReadyForm(block);
+      expect(isUpdating(block)).toBe(false);
+
+      payload = checkoutSessionPayload({
+        id: "cs_test_2",
+        client_secret: "cs_test_2_secret_def",
+      });
+      await block.events.emit("cart/updated", cartPayload({ value: 47 }));
+
+      // Covered before the refresh request is even sent.
+      expect(block.checkoutSessionCalls()).toHaveLength(1);
+      expect(isUpdating(block)).toBe(true);
+      expect(paymentForm(block).attributes["aria-busy"]).toBe("true");
+      expect(overlay(block).textContent).toBe("Updating your total…");
+      expect(overlay(block).attributes.role).toBe("status");
+      expect(
+        block.document.querySelector("#stripe-elements-container").inert,
+      ).toBe(true);
+      expect(overlay(block).inert).toBeFalsy();
+
+      await block.runSessionSyncTimer();
+      expect(block.paymentElements).toHaveLength(2);
+      // The new form is mounted but still loading.
+      expect(isUpdating(block)).toBe(true);
+
+      readyLatest(block);
+      expect(isUpdating(block)).toBe(false);
+      expect(paymentForm(block).attributes["aria-busy"]).toBeUndefined();
+      expect(overlay(block).textContent).toBe("");
+      expect(
+        block.document.querySelector("#stripe-elements-container").inert,
+      ).toBe(false);
+    });
+
+    test("removes the overlay when App Builder answers with the same session", async () => {
+      const block = loadStripePaymentBlock();
+      await mountReadyForm(block);
+
+      await block.events.emit(
+        "checkout/updated",
+        checkoutPayload({ email: "other@example.com" }),
+      );
+      expect(isUpdating(block)).toBe(true);
+
+      await block.runSessionSyncTimer();
+      expect(block.paymentElements).toHaveLength(1);
+      expect(isUpdating(block)).toBe(false);
+    });
+
+    test("removes the overlay when the refresh fails, leaving the form usable", async () => {
+      let fail = false;
+      const block = loadStripePaymentBlock({
+        onCheckoutSession: () =>
+          fail
+            ? checkoutSessionErrorResponse(500, { error: "server error" })
+            : checkoutSessionResponse(),
+      });
+      await mountReadyForm(block);
+
+      fail = true;
+      await block.events.emit("cart/updated", cartPayload({ value: 47 }));
+      expect(isUpdating(block)).toBe(true);
+
+      await block.runSessionSyncTimer();
+      expect(isUpdating(block)).toBe(false);
+    });
+
+    test("removes the overlay when the new form fails to load", async () => {
+      expectedConsoleErrors = 1;
+      let payload = checkoutSessionPayload();
+      const block = loadStripePaymentBlock({
+        onCheckoutSession: () => checkoutSessionResponse(payload),
+      });
+      await mountReadyForm(block);
+
+      payload = checkoutSessionPayload({ id: "cs_test_2" });
+      await block.events.emit("cart/updated", cartPayload({ value: 47 }));
+      await block.runSessionSyncTimer();
+      expect(isUpdating(block)).toBe(true);
+
+      block.paymentElements[1].handlers.loaderror({ error: new Error("x") });
+      expect(isUpdating(block)).toBe(false);
+    });
+
+    test("covers the form on a shipping method click, before the checkout saved it", async () => {
+      let payload = checkoutSessionPayload();
+      const block = loadStripePaymentBlock({
+        onCheckoutSession: () => checkoutSessionResponse(payload),
+      });
+      await mountReadyForm(block);
+
+      block.exports.beginPaymentFormUpdate(bestWay);
+      expect(isUpdating(block)).toBe(true);
+
+      // An update that changes nothing does not end the wait for the checkout.
+      await block.events.emit("cart/updated", cartPayload());
+      expect(isUpdating(block)).toBe(true);
+
+      payload = checkoutSessionPayload({ id: "cs_test_2" });
+      await block.events.emit("checkout/updated", checkoutWithBestWay());
+      expect(isUpdating(block)).toBe(true);
+
+      await block.runSessionSyncTimer();
+      expect(block.checkoutSessionCalls()).toHaveLength(2);
+      expect(isUpdating(block)).toBe(true);
+
+      readyLatest(block);
+      expect(isUpdating(block)).toBe(false);
+    });
+
+    test("ignores a click on the selected shipping method, and clicks before the form exists", async () => {
+      const block = loadStripePaymentBlock();
+
+      block.exports.beginPaymentFormUpdate(bestWay);
+      expect(block.document.querySelector(".stripe-payment-updating")).toBeNull();
+
+      await mountReadyForm(block);
+      block.exports.beginPaymentFormUpdate(shippingMethodPayload());
+      expect(isUpdating(block)).toBe(false);
+    });
+
+    test("removes the overlay at the latest after its maximum duration", async () => {
+      const block = loadStripePaymentBlock();
+      await mountReadyForm(block);
+
+      // The checkout fails to save the method and reports nothing.
+      block.exports.beginPaymentFormUpdate(bestWay);
+      expect(isUpdating(block)).toBe(true);
+
+      const safetyTimer = block.timers.find(
+        (timer) => timer.delay === 20000 && !timer.cleared,
+      );
+      safetyTimer.callback();
+      expect(isUpdating(block)).toBe(false);
+    });
+
+    test("makes Place Order wait for a refresh that is still scheduled", async () => {
+      let payload = checkoutSessionPayload();
+      const block = loadStripePaymentBlock({
+        onCheckoutSession: () => checkoutSessionResponse(payload),
+      });
+      await mountReadyForm(block);
+      block.emitPaymentComplete();
+
+      payload = checkoutSessionPayload({ id: "cs_test_2" });
+      await block.events.emit("cart/updated", cartPayload({ value: 47 }));
+
+      const placing = block.exports.handleStripePayment("cart_123");
+      await flushPromises();
+      expect(block.confirm).not.toHaveBeenCalled();
+
+      await block.runSessionSyncTimer();
+      readyLatest(block);
+
+      // The form of the new total is empty: nothing is confirmed for the old one.
+      expect(await placing).toBe(false);
+      expect(block.confirm).not.toHaveBeenCalled();
+      expect(block.errorText()).toBe("Please complete your payment details");
+    });
+
+    test("makes Place Order wait while the checkout saves a shipping method", async () => {
+      let payload = checkoutSessionPayload();
+      const block = loadStripePaymentBlock({
+        onCheckoutSession: () => checkoutSessionResponse(payload),
+      });
+      await mountReadyForm(block);
+      block.emitPaymentComplete();
+
+      block.exports.beginPaymentFormUpdate(bestWay);
+      const placing = block.exports.handleStripePayment("cart_123");
+      await flushPromises();
+      expect(block.checkoutSessionCalls()).toHaveLength(1);
+
+      payload = checkoutSessionPayload({ id: "cs_test_2" });
+      await block.events.emit("checkout/updated", checkoutWithBestWay());
+      await block.runSessionSyncTimer();
+      readyLatest(block);
+
+      expect(await placing).toBe(false);
+      expect(block.confirm).not.toHaveBeenCalled();
+    });
+
+    test("confirms as before when no update is pending", async () => {
+      const block = loadStripePaymentBlock();
+      await mountReadyForm(block);
+      block.emitPaymentComplete();
+
+      expect(await block.exports.handleStripePayment("cart_123")).toBe(true);
+      expect(block.confirm).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe("placing the order", () => {
     async function mountCompleteForm(block, options) {
       await renderAndMount(block, options);
@@ -1623,6 +1853,11 @@ describe("stripe-payment-ewcs EDS block", () => {
     expect(block.confirm).not.toHaveBeenCalled();
 
     finishLoadingActions();
+    await flushPromises();
+    // Place Order waits until the form of the new session can be filled in.
+    expect(block.paymentElements).toHaveLength(2);
+    expect(block.confirm).not.toHaveBeenCalled();
+    block.paymentElements[1].handlers.ready();
     // The form of the new session is empty, so nothing is confirmed.
     expect(await placing).toBe(false);
     expect(block.paymentElements).toHaveLength(2);

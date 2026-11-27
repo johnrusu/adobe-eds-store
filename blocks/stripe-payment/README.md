@@ -1,5 +1,10 @@
 # Stripe EDS Block
 
+> **Deprecated:** This block, the app's PaymentIntent flow on Stripe.js `v3`, is deprecated in this app. Use the
+> [`stripe-payment-ewcs`](../stripe-payment-ewcs/README.md) block (Elements with Checkout Sessions) for new storefronts,
+> and switch existing storefronts to it. This block keeps working with the current app, because the app keeps the
+> `init-params`, `payment-intent` and `payment-return` actions unchanged.
+
 An injectable EDS block by Stripe that provides encapsulated, reusable payment functionality, such as
 rendering the payment form, processing payments and handling payment errors.
 

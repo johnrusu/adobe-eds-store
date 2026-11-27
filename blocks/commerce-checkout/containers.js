@@ -69,7 +69,7 @@ import {
   rootLink,
 } from '../../scripts/commerce.js';
 import renderExpressCheckout from '../express-checkout/stripe-express-checkout.js';
-import { renderStripePaymentMethod } from './stripe-flow.js';
+import { beginPaymentFormUpdate, renderStripePaymentMethod } from './stripe-flow.js';
 
 // Constants
 import {
@@ -331,7 +331,11 @@ export const renderBillToShippingAddress = async (container) => renderContainer(
  */
 export const renderShippingMethods = async (container) => renderContainer(
   CONTAINERS.SHIPPING_METHODS,
-  async () => CheckoutProvider.render(ShippingMethods)(container),
+  async () => CheckoutProvider.render(ShippingMethods, {
+    // Fires on the shopper's click, before the checkout saves the method: the Stripe payment
+    // form shows that the total is being updated right away.
+    onSelectionChange: beginPaymentFormUpdate,
+  })(container),
 );
 
 /**

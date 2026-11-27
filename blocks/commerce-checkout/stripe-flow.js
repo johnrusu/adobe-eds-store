@@ -102,4 +102,13 @@ function renderStripePaymentMethod(ctx) {
 
 const { handleStripePayment } = stripeBlock;
 
-export { handleStripePayment, renderStripePaymentMethod };
+/**
+ * Tells the chosen block that the shopper picked another shipping method. Only the Checkout
+ * Session block reacts: it covers its form until the new total replaced the session.
+ * @param {Object} method - Shipping method the shopper picked
+ */
+function beginPaymentFormUpdate(method) {
+  stripeBlock.beginPaymentFormUpdate?.(method);
+}
+
+export { beginPaymentFormUpdate, handleStripePayment, renderStripePaymentMethod };
