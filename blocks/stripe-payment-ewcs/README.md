@@ -156,6 +156,15 @@ CheckoutProvider.render(PlaceOrder, {
 })
 ```
 
+Optionally, let the payment form show that the total is being updated as soon as the shopper picks
+another shipping method, instead of once the checkout has saved it:
+
+```javascript
+CheckoutProvider.render(ShippingMethods, {
+  onSelectionChange: stripe.beginPaymentFormUpdate,
+})
+```
+
 ### Switching from the `stripe-payment` block
 
 The `stripe-payment` block is deprecated. Switch storefronts that still use it to this block.
